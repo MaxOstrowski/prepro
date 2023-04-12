@@ -217,6 +217,8 @@ class EqualVariable(Transformer):
                 if agg_info.equal_bound is not None and not agg_info.two_equals:
                     analytics[i] = agg_info
         for i, agg_info in analytics.items():
+            if contains_variable(agg_info.equal_bound, node.head):
+                continue
             bcomp = BoundComputer(agg_info.equal_bound)
             for key, blit in enumerate(node.body):
                 if key == i:

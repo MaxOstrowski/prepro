@@ -106,3 +106,24 @@ def test_equal_variable(rule, result):
 
     ruler = RuleVisitor()
     parse_string(rule, lambda stm: ruler(eq(stm)))
+
+
+@pytest.mark.parametrize(
+    "rule, result",
+    [
+        (
+            "p(X) :- 1 <= #sum { 1,a: a; 1,b: b; 1,c: c } <= 2, X = #sum { 1,e: e; 1,f: f; 1,g: g } 3, X>=2, 5>3, X=Y, 1<=X!=4<5.",
+            "p(X) :- 1 <= #sum { 1,a: a; 1,b: b; 1,c: c } <= 2; X = #sum { 1,e: e; 1,f: f; 1,g: g } <= 3; X >= 2; 5 > 3; X = Y; 1 <= X != 4 < 5.",
+        ),
+    ],
+)
+def test_equal_variable_reject(rule, result):
+    eq = EqualVariable()
+
+    class RuleVisitor(Transformer):
+        def visit_Rule(self, stm):
+            assert str(stm) == result
+            return stm
+
+    ruler = RuleVisitor()
+    parse_string(rule, lambda stm: ruler(eq(stm)))
