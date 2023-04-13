@@ -1,7 +1,11 @@
 import pytest
 from clingo.ast import Transformer, parse_string
 
-from dependency import positive_body_predicates, positive_head_predicates
+from dependency import (
+    PositivePredicateDependency,
+    positive_body_predicates,
+    positive_head_predicates,
+)
 
 
 @pytest.mark.parametrize(
@@ -60,3 +64,41 @@ def test_positive_head(rule, result):
 
     ruler = RuleVisitor()
     parse_string(rule, lambda stm: ruler((stm)))
+
+
+@pytest.mark.parametrize(
+    "prg, result",
+    [
+        (
+            """
+            b :- a.
+            c :- b.
+            d :- c.
+            a :- d.
+            e :- d.
+            """,
+            [{("e", 0)}, {("a", 0), ("b", 0), ("c", 0), ("d", 0)}],
+        ),
+        (
+            """
+            b :- #sum{1 : a}.
+            c :- b.
+            {d} :- c, not d.
+            a :- d, not e.
+            e :- d.
+            f;g :- e.
+            e;not g :- f.
+            e :- not g.
+            """,
+            [
+                {("g", 0)},
+                {("e", 0), ("f", 0)},
+                {("a", 0), ("b", 0), ("c", 0), ("d", 0)},
+            ],
+        ),
+    ],
+)
+def test_positive_dependencies(prg, result):
+    ast = []
+    parse_string(prg, lambda stm: ast.append((stm)))
+    assert sorted(PositivePredicateDependency(ast).sccs) == sorted(result)

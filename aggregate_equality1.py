@@ -3,9 +3,21 @@
  and other literals of the form lb < X < ub with the direct replacement
  lb < #agg{} < ub
 """
+from itertools import product
 
-from clingo.ast import (ASTType, Comparison, ComparisonOperator, Guard,
-                        Literal, Location, Position, Sign, Transformer)
+from clingo.ast import (
+    ASTType,
+    Comparison,
+    ComparisonOperator,
+    Guard,
+    Literal,
+    Location,
+    Position,
+    Sign,
+    Transformer,
+)
+
+from dependency import PositivePredicateDependency, positive_predicates
 
 
 def reverse_comparison(cmp):
@@ -198,8 +210,14 @@ class EqualVariable(Transformer):
     lb < #agg{} < ub
     """
 
+    # TODO: can't replace multiple aggregates at the same time yet, needs a fixpoint calculation
+
+    def __init__(self, dependency):
+        self.dependency = dependency
+
     def visit_Rule(self, node):
         assert node.ast_type == ASTType.Rule
+        pheads = positive_predicates(node.head)
         analytics = {}
         for i, blit in enumerate(node.body):
             assert blit.ast_type == ASTType.Literal
@@ -209,6 +227,14 @@ class EqualVariable(Transformer):
                     analytics[i] = agg_info
         for i, agg_info in analytics.items():
             if contains_variable(agg_info.equal_bound, node.head):
+                continue
+            cont = False
+            pbodies = positive_predicates(node.body[i].atom)
+            for head, body in product(pheads, pbodies):
+                if self.dependency.are_dependent([head, body]):
+                    cont = True
+                    break
+            if cont:
                 continue
             bcomp = BoundComputer(agg_info.equal_bound)
             for key, blit in enumerate(node.body):
