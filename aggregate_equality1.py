@@ -4,17 +4,8 @@
  lb < #agg{} < ub
 """
 
-from clingo.ast import (
-    ASTType,
-    Comparison,
-    ComparisonOperator,
-    Guard,
-    Literal,
-    Location,
-    Position,
-    Sign,
-    Transformer,
-)
+from clingo.ast import (ASTType, Comparison, ComparisonOperator, Guard,
+                        Literal, Location, Position, Sign, Transformer)
 
 
 def reverse_comparison(cmp):
