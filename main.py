@@ -12,3 +12,5 @@ parse_files(files, lambda stm: prg.append(stm))
 pdg = PositivePredicateDependency(prg)
 eq = EqualVariable(pdg)
 parse_files(files, lambda stm: print(eq(stm)))
+
+# use sympy for simplificaions of mathematical expressions

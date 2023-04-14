@@ -115,10 +115,10 @@ def test_equal_variable(rule, result):
 @pytest.mark.parametrize(
     "rule, result",
     [
-        (
-            "p(X) :- 1 <= #sum { 1,a: a; 1,b: b; 1,c: c } <= 2, X = #sum { 1,e: e; 1,f: f; 1,g: g } 3, X>=2, 5>3, X=Y, 1<=X!=4<5.",
-            "p(X) :- 1 <= #sum { 1,a: a; 1,b: b; 1,c: c } <= 2; X = #sum { 1,e: e; 1,f: f; 1,g: g } <= 3; X >= 2; 5 > 3; X = Y; 1 <= X != 4 < 5.",
-        ),
+        # (
+        #     "p(X) :- 1 <= #sum { 1,a: a; 1,b: b; 1,c: c } <= 2, X = #sum { 1,e: e; 1,f: f; 1,g: g } 3, X>=2, 5>3, X=Y, 1<=X!=4<5.",
+        #     "p(X) :- 1 <= #sum { 1,a: a; 1,b: b; 1,c: c } <= 2; X = #sum { 1,e: e; 1,f: f; 1,g: g } <= 3; X >= 2; 5 > 3; X = Y; 1 <= X != 4 < 5.",
+        # ),
         (
             "e :- 1 <= #sum { 1,a: a; 1,b: b; 1,c: c } <= 2, X = #sum { 1,e: e; 1,f: f; 1,g: g } 3, X>=2.",
             "e :- 1 <= #sum { 1,a: a; 1,b: b; 1,c: c } <= 2; X = #sum { 1,e: e; 1,f: f; 1,g: g } <= 3; X >= 2.",

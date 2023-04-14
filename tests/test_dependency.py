@@ -1,10 +1,10 @@
 import pytest
-from clingo.ast import Transformer, parse_string
+from clingo.ast import Transformer, parse_string, Sign
 
 from dependency import (
     PositivePredicateDependency,
-    positive_body_predicates,
-    positive_head_predicates,
+    body_predicates,
+    head_predicates,
 )
 
 
@@ -13,18 +13,18 @@ from dependency import (
     [
         (
             "#false :- 1 <= #sum { 1,a: a; 1,b: b; 1,c: c } <= 2, X = #sum { 1,e: e; 1,f: f; 1,g: g } 3, X>=2, 5>3, X=Y, 1<=X!=4<5.",
-            [("a", 0), ("b", 0), ("c", 0), ("e", 0), ("f", 0), ("g", 0)],
+            [(Sign.NoSign, "a", 0), (Sign.NoSign, "b", 0), (Sign.NoSign, "c", 0), (Sign.NoSign, "e", 0), (Sign.NoSign, "f", 0), (Sign.NoSign, "g", 0)],
         ),
         (
             "#false :- 1 { a : e; b : not f; c } 2, d.",
-            [("a", 0), ("b", 0), ("c", 0), ("d", 0), ("e", 0)],
+            [(Sign.NoSign, "a", 0), (Sign.NoSign, "b", 0), (Sign.NoSign, "c", 0), (Sign.NoSign, "d", 0), (Sign.NoSign, "e", 0)],
         ),
     ],
 )
 def test_positive_body(rule, result):
     class RuleVisitor(Transformer):
         def visit_Rule(self, stm):
-            assert set(positive_body_predicates(stm)) == set(result)
+            assert set(body_predicates(stm, {Sign.NoSign})) == set(result)
             return stm
 
     ruler = RuleVisitor()
@@ -36,30 +36,30 @@ def test_positive_body(rule, result):
     [
         (
             "a(1,4,f(4)).",
-            [("a", 3)],
+            [(Sign.NoSign, "a", 3)],
         ),
         (
             "1 <= #sum { 1,a: a; 1,b: b; 1: c } <= 2.",
-            [("a", 0), ("b", 0), ("c", 0)],
+            [(Sign.NoSign, "a", 0), (Sign.NoSign, "b", 0), (Sign.NoSign, "c", 0)],
         ),
         (
             "1 { a : e; b : not f; c } 2.",
-            [("a", 0), ("b", 0), ("c", 0), ("e", 0)],
+            [(Sign.NoSign, "a", 0), (Sign.NoSign, "b", 0), (Sign.NoSign, "c", 0), (Sign.NoSign, "e", 0)],
         ),
         (
             "a; b; not c.",
-            [("a", 0), ("b", 0)],
+            [(Sign.NoSign, "a", 0), (Sign.NoSign, "b", 0)],
         ),
         (
             "a : d; b : not e; not c.",
-            [("a", 0), ("b", 0), ("d", 0)],
+            [(Sign.NoSign, "a", 0), (Sign.NoSign, "b", 0), (Sign.NoSign, "d", 0)],
         ),
     ],
 )
 def test_positive_head(rule, result):
     class RuleVisitor(Transformer):
         def visit_Rule(self, stm):
-            assert set(positive_head_predicates(stm)) == set(result)
+            assert set(head_predicates(stm, {Sign.NoSign})) == set(result)
             return stm
 
     ruler = RuleVisitor()

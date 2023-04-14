@@ -8,7 +8,6 @@ from itertools import product
 from clingo.ast import (
     ASTType,
     Comparison,
-    ComparisonOperator,
     Guard,
     Literal,
     Location,
@@ -17,92 +16,13 @@ from clingo.ast import (
     Transformer,
 )
 
-from dependency import PositivePredicateDependency, positive_predicates
-
-
-def reverse_comparison(cmp):
-    """reverse clingo.ast.ComparisonOperator"""
-    return {
-        ComparisonOperator.Equal: ComparisonOperator.NotEqual,
-        ComparisonOperator.NotEqual: ComparisonOperator.Equal,
-        ComparisonOperator.GreaterEqual: ComparisonOperator.LessEqual,
-        ComparisonOperator.LessEqual: ComparisonOperator.GreaterEqual,
-        ComparisonOperator.GreaterThan: ComparisonOperator.LessThan,
-        ComparisonOperator.LessThan: ComparisonOperator.GreaterThan,
-    }[cmp]
-
-
-class BodyAggAnalytics:
-    """class to analyze a body aggregate and capture its bounds"""
-
-    def __init__(self, node):
-        assert node.ast_type == ASTType.BodyAggregate
-        self.equal_bound = None
-        self.two_equals = False
-        self.bounds = []  # all non equal bounds as right guards
-
-        if node.left_guard and node.left_guard.ast_type == ASTType.Guard:
-            guard = node.left_guard
-            if (
-                guard.comparison == ComparisonOperator.Equal
-                and guard.term.ast_type == ASTType.Variable
-            ):
-                self.equal_bound = guard.term.name
-            else:
-                self.bounds.append(
-                    guard.update(comparison=reverse_comparison(guard.comparison))
-                )
-
-        if node.right_guard and node.right_guard.ast_type == ASTType.Guard:
-            guard = node.right_guard
-            if (
-                guard.comparison == ComparisonOperator.Equal
-                and guard.term.ast_type == ASTType.Variable
-            ):
-                if self.equal_bound is not None:
-                    self.two_equals = True
-                    return
-                self.equal_bound = guard.term.name
-            else:
-                self.bounds.append(guard)
-
-
-class __ContainsVariable(Transformer):
-    """helper class for function contains_variable"""
-
-    def __init__(self, name):
-        self.__name = name
-        self.contains_variable = False
-
-    def visit_Variable(self, node):
-        if node.name == self.__name:
-            self.contains_variable = True
-        return node
-
-
-def contains_variable(name, stm):
-    """returns true if an AST contains a variable "name" """
-    checker = __ContainsVariable(name)
-    checker.visit(stm)
-    return checker.contains_variable
-
-
-class __ContainsInterval(Transformer):
-    """helper class for function contains_interval"""
-
-    def __init__(self):
-        self.contains_interval = False
-
-    def visit_Interval(self, node):
-        self.contains_interval = True
-        return node
-
-
-def contains_interval(stm):
-    """returns true if an AST contains am variable "clingo.ast.Interval" """
-    checker = __ContainsInterval()
-    checker.visit(stm)
-    return checker.contains_interval
+from dependency import predicates
+from utils import (
+    contains_variable,
+    reverse_comparison,
+    contains_interval,
+    BodyAggAnalytics,
+)
 
 
 class BoundComputer:
@@ -202,7 +122,6 @@ class BoundComputer:
         return
 
 
-# TODO: ensure no cycles though rule
 class EqualVariable(Transformer):
     """
     replaces bodys with aggregates of the form X = #agg{}
@@ -217,11 +136,10 @@ class EqualVariable(Transformer):
 
     def visit_Rule(self, node):
         assert node.ast_type == ASTType.Rule
-        pheads = positive_predicates(node.head)
+        pheads = predicates(node.head, {Sign.NoSign})
         analytics = {}
         for i, blit in enumerate(node.body):
-            assert blit.ast_type == ASTType.Literal
-            if blit.atom.ast_type == ASTType.BodyAggregate:
+            if blit.ast_type == ASTType.Literal and blit.atom.ast_type == ASTType.BodyAggregate:
                 agg_info = BodyAggAnalytics(blit.atom)
                 if agg_info.equal_bound is not None and not agg_info.two_equals:
                     analytics[i] = agg_info
@@ -229,8 +147,8 @@ class EqualVariable(Transformer):
             if contains_variable(agg_info.equal_bound, node.head):
                 continue
             cont = False
-            pbodies = positive_predicates(node.body[i].atom)
-            for head, body in product(pheads, pbodies):
+            pbodies = predicates(node.body[i].atom, {Sign.NoSign})
+            for head, body in product(map(lambda triple: (triple[1], triple[2]), pheads), map(lambda triple: (triple[1], triple[2]), pbodies)):
                 if self.dependency.are_dependent([head, body]):
                     cont = True
                     break

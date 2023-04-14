@@ -7,81 +7,84 @@ import networkx as nx
 from clingo.ast import ASTType, Sign
 
 
-def positive_body_predicates(rule):
+def body_predicates(rule, signs):
     """
-    yields all predicates used in the rule body as (name, arity)
+    yields all predicates used in the rule body as (name, arity) that have a sign in the set signs
     """
     if rule.ast_type == ASTType.Rule:
         for blit in rule.body:
             if blit.ast_type == ASTType.Literal:
-                yield from positive_literal_predicate(blit)
-                yield from positive_headorbody_aggregate_predicate(blit.atom)
-                yield from positive_aggregate_predicate(blit.atom)
+                yield from literal_predicate(blit, signs)
+                yield from headorbody_aggregate_predicate(blit.atom, signs)
+                yield from aggregate_predicate(blit.atom, signs)
 
 
-def positive_literal_predicate(lit):
+def literal_predicate(lit, signs):
     if lit.ast_type == ASTType.Literal:
-        if lit.sign == Sign.NoSign and lit.atom.ast_type == ASTType.SymbolicAtom:
+        if lit.sign in signs and lit.atom.ast_type == ASTType.SymbolicAtom:
             atom = lit.atom
             if atom.symbol.ast_type == ASTType.Function:
-                yield (atom.symbol.name, len(atom.symbol.arguments))
+                yield (lit.sign, atom.symbol.name, len(atom.symbol.arguments))
 
 
-def positive_conditional_literal_predicate(condlit):
+def conditional_literal_predicate(condlit, signs):
     if condlit.ast_type != ASTType.ConditionalLiteral:
         return
     lit = condlit.literal
-    yield from positive_literal_predicate(lit)
+    yield from literal_predicate(lit, signs)
     for cond in condlit.condition:
-        yield from positive_literal_predicate(cond)
+        yield from literal_predicate(cond, signs)
 
 
-def positive_headorbody_aggregate_predicate(agg):
+def headorbody_aggregate_predicate(agg, signs):
     if agg.ast_type == ASTType.BodyAggregate or agg.ast_type == ASTType.HeadAggregate:
         for elem in agg.elements:
             if elem.ast_type == ASTType.HeadAggregateElement:
-                yield from positive_conditional_literal_predicate(elem.condition)
+                yield from conditional_literal_predicate(elem.condition, signs)
             elif elem.ast_type == ASTType.BodyAggregateElement:
                 for cond in elem.condition:
                     # aggregate in body seems to have Literals as condition
-                    yield from positive_literal_predicate(cond)
+                    yield from literal_predicate(cond, signs)
 
 
-def positive_aggregate_predicate(agg):
+def aggregate_predicate(agg, signs):
     if agg.ast_type == ASTType.Aggregate:
         for elem in agg.elements:
-            yield from positive_conditional_literal_predicate(elem)
+            yield from conditional_literal_predicate(elem, signs)
             for cond in elem.condition:
                 # aggregate in body seems to have Literals as condition
-                yield from positive_literal_predicate(cond)
+                yield from literal_predicate(cond, signs)
 
 
-def positive_disjunction_predicate(head):
+def disjunction_predicate(head, signs):
     if head.ast_type == ASTType.Disjunction:
         for lit in head.elements:
-            yield from positive_conditional_literal_predicate(lit)
+            yield from conditional_literal_predicate(lit, signs)
 
 
-def positive_head_predicates(rule):
+def head_predicates(rule, signs):
     """
-    yields all predicates used in the rule head as (name, arity)
+    yields all predicates used in the rule head as (name, arity) that have a sign in the set signs
     """
     if rule.ast_type == ASTType.Rule:
         head = rule.head
-        yield from positive_literal_predicate(head)
-        yield from positive_aggregate_predicate(head)
-        yield from positive_headorbody_aggregate_predicate(head)
-        yield from positive_disjunction_predicate(head)
+        yield from literal_predicate(head, signs)
+        yield from aggregate_predicate(head, signs)
+        yield from headorbody_aggregate_predicate(head, signs)
+        yield from disjunction_predicate(head, signs)
 
 
-def positive_predicates(ast):
-    yield from positive_head_predicates(ast)
-    yield from positive_literal_predicate(ast)
-    yield from positive_aggregate_predicate(ast)
-    yield from positive_headorbody_aggregate_predicate(ast)
-    yield from positive_disjunction_predicate(ast)
-    yield from positive_conditional_literal_predicate(ast)
-    yield from positive_body_predicates(ast)
+def predicates(ast, signs):
+    """
+    yields all predicates in ast that have a sign in the set signs
+    """
+    yield from head_predicates(ast, signs)
+    yield from literal_predicate(ast, signs)
+    yield from aggregate_predicate(ast, signs)
+    yield from headorbody_aggregate_predicate(ast, signs)
+    yield from disjunction_predicate(ast, signs)
+    yield from conditional_literal_predicate(ast, signs)
+    yield from body_predicates(ast, signs)
 
 
 class PositivePredicateDependency:
@@ -90,9 +93,9 @@ class PositivePredicateDependency:
         g = nx.DiGraph()
         for stm in prg:
             if stm.ast_type == ASTType.Rule:
-                heads = positive_head_predicates(stm)
-                bodies = positive_body_predicates(stm)
-                g.add_edges_from(product(bodies, heads))
+                heads = head_predicates(stm, {Sign.NoSign})
+                bodies = body_predicates(stm, {Sign.NoSign})
+                g.add_edges_from(product(map(lambda triple : (triple[1], triple[2]), bodies), map(lambda triple : (triple[1], triple[2]),heads)))
                 self.sccs = list(nx.strongly_connected_components(g))
 
     # returns true if all of the predicates in predlist have a positive dependency with each other
