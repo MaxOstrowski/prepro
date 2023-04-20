@@ -87,6 +87,7 @@ def predicates(ast, signs):
     yield from body_predicates(ast, signs)
 
 
+# TODO: create predicates as NamedTuple
 class PositivePredicateDependency:
     def __init__(self, prg):
         self.sccs = []
@@ -95,8 +96,13 @@ class PositivePredicateDependency:
             if stm.ast_type == ASTType.Rule:
                 heads = head_predicates(stm, {Sign.NoSign})
                 bodies = body_predicates(stm, {Sign.NoSign})
-                g.add_edges_from(product(map(lambda triple : (triple[1], triple[2]), bodies), map(lambda triple : (triple[1], triple[2]),heads)))
-                self.sccs = list(nx.strongly_connected_components(g))
+                g.add_edges_from(
+                    product(
+                        map(lambda triple: (triple[1], triple[2]), bodies),
+                        map(lambda triple: (triple[1], triple[2]), heads),
+                    )
+                )
+        self.sccs = list(nx.strongly_connected_components(g))
 
     # returns true if all of the predicates in predlist have a positive dependency with each other
     def are_dependent(self, predlist):
@@ -105,3 +111,63 @@ class PositivePredicateDependency:
             if spl <= scc:
                 return True
         return False
+
+
+class DomainPredicates:
+    def __init__(self, prg):
+        self._no_domain = set()
+        g = nx.DiGraph()
+        SIGNS = {Sign.NoSign, Sign.Negation, Sign.DoubleNegation}
+        for stm in prg:
+            if stm.ast_type == ASTType.Rule:
+                g.add_edges_from(
+                    product(
+                        map(
+                            lambda triple: (triple[1], triple[2]),
+                            body_predicates(stm, SIGNS),
+                        ),
+                        map(
+                            lambda triple: (triple[1], triple[2]),
+                            head_predicates(stm, SIGNS),
+                        ),
+                    )
+                )
+
+                ### remove head choice predicates
+                head = stm.head
+                if head.ast_type == ASTType.Disjunction:
+                    for cond in head.elements:
+                        assert cond.ast_type == ASTType.ConditionalLiteral
+                        lit = list(literal_predicate(cond.literal, SIGNS))[0]
+                        self._no_domain.add((lit[1], lit[2]))
+                elif head.ast_type == ASTType.HeadAggregate:
+                    for elem in head.elements:
+                        if elem.ast_type == ASTType.HeadAggregateElement:
+                            cond = elem.condition
+                            assert cond == ASTType.ConditionalLiteral
+                            lit = list(literal_predicate(cond.literal, SIGNS))[0]
+                            self._no_domain.add((lit[1], lit[2]))
+                elif head.ast_type == ASTType.Aggregate:
+                    for cond in head.elements:
+                        assert cond.ast_type == ASTType.ConditionalLiteral
+                        lit = list(literal_predicate(cond.literal, SIGNS))[0]
+                        self._no_domain.add((lit[1], lit[2]))
+        cycle_free_g = g.copy()
+        ### remove predicates in cycles
+        for scc in nx.strongly_connected_components(g):
+            if len(scc) > 1:
+                self._no_domain.update(scc)
+                cycle_free_g.remove_nodes_from(scc)
+        for scc in nx.selfloop_edges(g):
+            self._no_domain.add(scc[0])
+            cycle_free_g.remove_nodes_from([scc[0]])
+
+        ### remove predicates derived by using non_domain predicates
+        for node in nx.topological_sort(cycle_free_g):
+            for pre in g.predecessors(node):
+                if pre in self._no_domain:
+                    self._no_domain.add(node)
+                    continue
+
+    def is_domain(self, pred):
+        return pred not in self._no_domain

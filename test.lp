@@ -60,6 +60,6 @@ max(E, #inf) :- __min_dom_skill_3_3(X), not __chain(E, X), person(E).
 
 % 1. make a complete dependency graph with positive and negative edges.
 % 2. mark all nodes non_static that are in a choice head or disjunctive head
-% 3. mark all nodes non_static that are in a loop with at least one negative edges
+% 3. mark all nodes non_static that are in a loop of size > 1 and also all predicates with self loops
 % 4. go breadth first, mark non_static if any parent is non_static
 % 5. all static onces should be left

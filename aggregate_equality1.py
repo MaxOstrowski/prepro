@@ -18,10 +18,10 @@ from clingo.ast import (
 
 from dependency import predicates
 from utils import (
+    BodyAggAnalytics,
+    contains_interval,
     contains_variable,
     reverse_comparison,
-    contains_interval,
-    BodyAggAnalytics,
 )
 
 
@@ -139,7 +139,10 @@ class EqualVariable(Transformer):
         pheads = predicates(node.head, {Sign.NoSign})
         analytics = {}
         for i, blit in enumerate(node.body):
-            if blit.ast_type == ASTType.Literal and blit.atom.ast_type == ASTType.BodyAggregate:
+            if (
+                blit.ast_type == ASTType.Literal
+                and blit.atom.ast_type == ASTType.BodyAggregate
+            ):
                 agg_info = BodyAggAnalytics(blit.atom)
                 if agg_info.equal_bound is not None and not agg_info.two_equals:
                     analytics[i] = agg_info
@@ -148,7 +151,10 @@ class EqualVariable(Transformer):
                 continue
             cont = False
             pbodies = predicates(node.body[i].atom, {Sign.NoSign})
-            for head, body in product(map(lambda triple: (triple[1], triple[2]), pheads), map(lambda triple: (triple[1], triple[2]), pbodies)):
+            for head, body in product(
+                map(lambda triple: (triple[1], triple[2]), pheads),
+                map(lambda triple: (triple[1], triple[2]), pbodies),
+            ):
                 if self.dependency.are_dependent([head, body]):
                     cont = True
                     break
