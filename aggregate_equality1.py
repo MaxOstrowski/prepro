@@ -19,8 +19,8 @@ from clingo.ast import (
 from dependency import predicates
 from utils import (
     BodyAggAnalytics,
-    contains_interval,
     contains_variable,
+    contains_ast,
     reverse_comparison,
 )
 
@@ -63,7 +63,7 @@ class BoundComputer:
             self.rest.append(literal)
             return
 
-        if contains_interval(literal):
+        if contains_ast(literal, "Interval"):
             self.too_complicated = True
             return
 

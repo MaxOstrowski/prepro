@@ -124,7 +124,7 @@ def test_positive_dependencies(prg, result):
 
 
 @pytest.mark.parametrize(
-    "prg, domain, nodomain",
+    "prg, domain, notdomain, hasdomain",
     [
         (
             """
@@ -141,6 +141,15 @@ def test_positive_dependencies(prg, result):
                 ("c", 0),
                 ("d", 0),
                 ("e", 0),
+            ],
+            [
+                ("a", 0),
+                ("b", 0),
+                ("c", 0),
+                ("d", 0),
+                ("e", 0),
+                ("x", 3),
+
             ],
         ),
         (
@@ -180,14 +189,50 @@ def test_positive_dependencies(prg, result):
                 ("p", 1),
                 ("q", 1),
             ],
+            [
+                ("y", 0),
+                ("z", 0),
+                ("a", 0),
+                ("b", 0),
+                ("c", 0),
+                ("d", 0),
+                ("e", 0),
+                ("f", 0),
+                ("g", 0),
+                ("x", 0),
+                ("w", 0),
+                ("u", 0),
+                ("v", 0),
+                ("p", 1),
+            ],
+        ),
+        (
+            """
+            a(X) :- b(X,Y), c(Y).
+            {d(X)} :- b(X,Y), c(Y).
+            """,
+            [
+                ("a", 1),
+                ("b", 2),
+                ("c", 1),
+            ],
+            [
+                ("d", 1)
+            ],
+            [
+                ("a", 1),
+                ("b", 2),
+                ("c", 1),
+                ("d", 1),
+            ],
         ),
     ],
 )
-def test_domain_predicates(prg, domain, nodomain):
+def test_domain_predicates(prg, domain, notdomain, hasdomain):
     ast = []
     parse_string(prg, lambda stm: ast.append((stm)))
     dp = DomainPredicates(ast)
     for pred in domain:
         assert dp.is_domain(pred)
-    for pred in nodomain:
+    for pred in notdomain:
         assert not dp.is_domain(pred)

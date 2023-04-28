@@ -1,11 +1,15 @@
 """
 A module for all predicate dependencies in the AST
 """
-from itertools import product
+from itertools import product, chain
+from collections import defaultdict
 
 import networkx as nx
 from clingo.ast import ASTType, Sign
 
+from utils import collect_ast, contains_variable
+
+from pprint import pprint
 
 def body_predicates(rule, signs):
     """
@@ -20,6 +24,7 @@ def body_predicates(rule, signs):
 
 
 def literal_predicate(lit, signs):
+    """ converts ast Literal into (sign, name, arity) if sign is in signs"""
     if lit.ast_type == ASTType.Literal:
         if lit.sign in signs and lit.atom.ast_type == ASTType.SymbolicAtom:
             atom = lit.atom
@@ -116,6 +121,13 @@ class PositivePredicateDependency:
 class DomainPredicates:
     def __init__(self, prg):
         self._no_domain = set()
+        self._cycle_free_pdg = None
+        prg = list(prg)
+        self.domains = {} # key = ("p",3) -> ("dom",3)
+        self.__compute_domain_predicates(prg)
+        self.__compute_domains(prg)
+
+    def __compute_domain_predicates(self, prg):
         g = nx.DiGraph()
         SIGNS = {Sign.NoSign, Sign.Negation, Sign.DoubleNegation}
         for stm in prg:
@@ -144,7 +156,7 @@ class DomainPredicates:
                     for elem in head.elements:
                         if elem.ast_type == ASTType.HeadAggregateElement:
                             cond = elem.condition
-                            assert cond == ASTType.ConditionalLiteral
+                            assert cond.ast_type == ASTType.ConditionalLiteral
                             lit = list(literal_predicate(cond.literal, SIGNS))[0]
                             self._no_domain.add((lit[1], lit[2]))
                 elif head.ast_type == ASTType.Aggregate:
@@ -152,22 +164,111 @@ class DomainPredicates:
                         assert cond.ast_type == ASTType.ConditionalLiteral
                         lit = list(literal_predicate(cond.literal, SIGNS))[0]
                         self._no_domain.add((lit[1], lit[2]))
-        cycle_free_g = g.copy()
+        self._cycle_free_pdg = g.copy()
         ### remove predicates in cycles
         for scc in nx.strongly_connected_components(g):
             if len(scc) > 1:
                 self._no_domain.update(scc)
-                cycle_free_g.remove_nodes_from(scc)
+                self._cycle_free_pdg.remove_nodes_from(scc)
         for scc in nx.selfloop_edges(g):
             self._no_domain.add(scc[0])
-            cycle_free_g.remove_nodes_from([scc[0]])
+            self._cycle_free_pdg.remove_nodes_from([scc[0]])
 
         ### remove predicates derived by using non_domain predicates
-        for node in nx.topological_sort(cycle_free_g):
+        for node in nx.topological_sort(self._cycle_free_pdg):
             for pre in g.predecessors(node):
                 if pre in self._no_domain:
                     self._no_domain.add(node)
                     continue
 
     def is_domain(self, pred):
+        """ pred = (name, arity)
+            returns true if predicate can be computed statically
+        """
         return pred not in self._no_domain
+    
+
+    def has_domain(self, pred):
+        """ pred = (name, arity)
+            returns true if a domain of pred has been computed
+        """
+        return self.is_domain(pred) or pred in self.domains
+    
+    
+    def domain(self, pred):
+        """ pred = (name, arity)
+            returns ast of domain predicate of pred
+        """
+        assert(self.has_domain(pred))
+        if self.is_domain(pred):
+            return pred
+        return self.domains[pred]
+    
+
+    # important TODO: not only collect all possible inferences for domains but mark predicates that are not possible to compute domain for
+    def __compute_domains(self, prg):
+        domain_rules = defaultdict(list) # atom -> [conditions, ...]
+        for rule in prg:
+            if rule.ast_type == ASTType.Rule:
+                head = rule.head
+                body = rule.body
+                if head.ast_type == ASTType.Literal and head.sign == Sign.NoSign:
+                    domain_rules[head.atom].append(body)
+                elif head.ast_type == ASTType.Disjunction:
+                    for elem in head.elements:
+                        assert elem.ast_type == ASTType.ConditionalLiteral
+                        condition = elem.condition
+                        if elem.literal.sign == Sign.NoSign:
+                            domain_rules[elem.literal.atom].append(chain(condition, body))
+                elif head.ast_type == ASTType.HeadAggregate:
+                    for elem in head.elements:
+                        assert elem.condition.literal.sign == Sign.NoSign
+                        domain_rules[elem.condition.literal.atom].append(chain(elem.condition, body))
+                elif head.ast_type == ASTType.Aggregate:
+                    for elem in head.elements:
+                        assert elem.literal.sign == Sign.NoSign
+                        domain_rules[elem.literal.atom].append(chain(elem.condition, body))
+
+        for head in domain_rules.keys():
+            assert head.ast_type == ASTType.SymbolicAtom
+            # I actually need the position and maybe subreferencing of the variables if head(f(X), X) :- body
+            head_variables = collect_ast(head, "Variables")
+
+            def contains_head_var(cond):
+                return any(map(lambda hv : contains_variable(hv, cond), head_variables))
+
+            # TODO: maybe remove list and use generator
+            domain_rules[head] = [list(filter(contains_head_var, conditions)) for conditions in domain_rules[head]]
+
+        # for head in domain_rules.keys():
+        #     #def have_domain(literals):
+        #         #do visit SymbolicAtoms
+        #     #             if lit.sign in signs and lit.atom.ast_type == ASTType.SymbolicAtom:
+        #     # atom = lit.atom
+        #     # if atom.symbol.ast_type == ASTType.Function:
+        #     #     yield (lit.sign, atom.symbol.name, len(atom.symbol.arguments))
+
+        #     for conditions in domain_rules[head]:
+        #         if all(conditions, have_domain):
+        #             print("yeah")
+            
+        # #if all predicates of a condition have a domain, replace all of them with their respective domain predicates
+        #     #also a domain for a predicate is only finished if all rules with this head predicate have been evaluated
+
+        pprint(domain_rules)
+
+        #how to actually represent a domain_rules
+        #- using ast ? Then I need to find the correct variables
+        #p(A,B) -> dom(A,B) where dom(X,Y) is domain of p/2
+        #what about p(f(A), A+B): easy -> dom(f(A), A+B)
+
+        #what if the domain predicate is not dom(X,Y) but dom(f(X), X+Y, 42)
+        #well, its still dom/3 as an overapproximation
+        #Fazit: I will represent domains as dom/3
+                        
+                    #check if cond is a predicate and domain
+                    #check if it contains variables of head
+
+
+                            
+

@@ -40,26 +40,18 @@ skill(b, t("knitting",1..10), 1)}.
 % these elements also need to be positive in the body, not negatively.
 
 
-__dom_skill_3_3(1).
-__dom_skill_3_3(3).
-__dom_skill_3_3(5).
-__dom_skill_3_3(10).
-__dom_skill_3_3(100).
-__min_dom_skill_3_3(X) :- X = #min{L : __dom_skill_3_3(L)}.
-__next_dom_skill_3_3(P,N) :- __min_dom_skill_3_3(P), __dom_skill_3_3(N), N > P,
-not __dom_skill_3_3(B) : __dom_skill_3_3(B), P < B < N.
-__next_dom_skill_3_3(P,N) :- __next_dom_skill_3_3(_,P), __dom_skill_3_3(N), N > P,
-not __dom_skill_3_3(B) : __dom_skill_3_3(B), P < B < N.
+% __dom_skill_3_3(1).
+% __dom_skill_3_3(3).
+% __dom_skill_3_3(5).
+% __dom_skill_3_3(10).
+% __dom_skill_3_3(100).
+% __min_dom_skill_3_3(X) :- X = #min{L : __dom_skill_3_3(L)}.
+% __next_dom_skill_3_3(P,N) :- __min_dom_skill_3_3(P), __dom_skill_3_3(N), N > P,
+% not __dom_skill_3_3(B) : __dom_skill_3_3(B), P < B < N.
+% __next_dom_skill_3_3(P,N) :- __next_dom_skill_3_3(_,P), __dom_skill_3_3(N), N > P,
+% not __dom_skill_3_3(B) : __dom_skill_3_3(B), P < B < N.
 
-__chain(E, V) :- skill(E, ID, V), person(E).
-__chain(E, P) :- __chain(E, N), __next_dom_skill_3_3(P, N).
-max(E, V) :- __chain(E, V), not __chain(E, N) : __next_dom_skill_3_3(V, N).
-max(E, #inf) :- __min_dom_skill_3_3(X), not __chain(E, X), person(E).
-
-
-
-% 1. make a complete dependency graph with positive and negative edges.
-% 2. mark all nodes non_static that are in a choice head or disjunctive head
-% 3. mark all nodes non_static that are in a loop of size > 1 and also all predicates with self loops
-% 4. go breadth first, mark non_static if any parent is non_static
-% 5. all static onces should be left
+% __chain(E, V) :- skill(E, ID, V), person(E).
+% __chain(E, P) :- __chain(E, N), __next_dom_skill_3_3(P, N).
+% max(E, V) :- __chain(E, V), not __chain(E, N) : __next_dom_skill_3_3(V, N).
+% max(E, #inf) :- __min_dom_skill_3_3(X), not __chain(E, X), person(E).
