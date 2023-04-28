@@ -149,7 +149,6 @@ def test_positive_dependencies(prg, result):
                 ("d", 0),
                 ("e", 0),
                 ("x", 3),
-
             ],
         ),
         (
@@ -216,9 +215,7 @@ def test_positive_dependencies(prg, result):
                 ("b", 2),
                 ("c", 1),
             ],
-            [
-                ("d", 1)
-            ],
+            [("d", 1)],
             [
                 ("a", 1),
                 ("b", 2),
@@ -236,3 +233,33 @@ def test_domain_predicates(prg, domain, notdomain, hasdomain):
         assert dp.is_domain(pred)
     for pred in notdomain:
         assert not dp.is_domain(pred)
+    for pred in hasdomain:
+        assert dp.has_domain(pred)
+
+
+@pytest.mark.parametrize(
+    "prg, domain_condition",
+    [
+        (
+            """
+            a(X) :- b(X,Y), c(Y).
+            {d(X)} :- b(X,Y), c(Y).
+            e(X) :- a(X).
+            {f(X)} :- d(X), a(X).
+            """,
+            {
+                ("a", 1) : {frozenset([("a", 1)])},
+                ("d", 1) : {frozenset(["b(X,Y)"])},
+                ("e", 1) : {frozenset([("e", 1)])},
+                ("f", 1) : {frozenset(["__dom_d(X)", "a(X)"])},
+                #TODO: I need to remove Y unecessary variables from domain conditions s.t. they do not overlap with other domain conditions {a(X)} :- b(X), c(X) and b(X) gets replaced by d(X,Y) and c(X) gets replaced by e(X,Y) both Y are not the same)
+            },
+        ),
+    ],
+)
+def test_domain_predicates_condition(prg, domain_condition):
+    ast = []
+    parse_string(prg, lambda stm: ast.append((stm)))
+    dp = DomainPredicates(ast)
+    for pred, domain in domain_condition.items():
+        assert dp._domain_condition_as_string(pred) == domain
