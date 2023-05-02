@@ -246,6 +246,7 @@ def test_domain_predicates(prg, domain, notdomain, hasdomain):
             {d(X)} :- b(X,Y), c(Y).
             e(X) :- a(X).
             {f(X)} :- d(X), a(X).
+            %{g(X)} :- d(X), a(Y), X <= Y. TODO: does replacing Y with _ work here ?
             """,
             {
                 ("a", 1) : {frozenset([("a", 1)])},

@@ -129,7 +129,7 @@ class DomainPredicates:
     def __compute_domain_predicates(self, prg):
         g = nx.DiGraph()
         SIGNS = {Sign.NoSign, Sign.Negation, Sign.DoubleNegation}
-        for stm in prg:
+        for stm in chain.from_iterable([x.unpool(condition=True) for x in prg]):
             if stm.ast_type == ASTType.Rule:
                 g.add_edges_from(
                     product(
@@ -216,7 +216,8 @@ class DomainPredicates:
 
     # important TODO: not only collect all possible inferences for domains but mark predicates that are not possible to compute domain for
     def __compute_domains(self, prg):
-        for rule in prg:
+        for rule in chain.from_iterable([x.unpool(condition=True) for x in prg]):
+        #for rule in prg:
             if rule.ast_type == ASTType.Rule:
                 head = rule.head
                 body = rule.body
