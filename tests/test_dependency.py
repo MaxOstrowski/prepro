@@ -1,10 +1,11 @@
 import pytest
-from clingo.ast import Sign, Transformer, parse_string
+from clingo.ast import Sign, Transformer, parse_string, ASTType
 
 from dependency import (
     DomainPredicates,
     PositivePredicateDependency,
     body_predicates,
+    collect_bound_variables,
     head_predicates,
 )
 
@@ -238,6 +239,27 @@ def test_domain_predicates(prg, domain, notdomain, hasdomain):
 
 
 @pytest.mark.parametrize(
+    "prg, bound_variables",
+    [
+        (":- b(X,Y), c(Y).", ["X", "Y"]),
+        (":- a(X).", ["X"]),
+        (":- d(X), a(X).", ["X"]),
+        (":- d(X), a(Y), X <= Y.", ["X", "Y"]),
+        (":- d(X), X <= Y.", ["X"]),
+        (":- not d(X), a(Y), X <= Y.", ["Y"]),
+        (":- a(X), not b(X).", ["X"]),
+        (":- X = #sum {1 : b(Y)}.", ["X"]),
+    ],
+)
+def test_bound_variables(prg, bound_variables):
+    ast = []
+    parse_string(prg, lambda stm: ast.append((stm)))
+    for stm in ast:
+        if stm.ast_type == ASTType.Rule:
+            assert set(map(lambda x: x.name, collect_bound_variables(stm.body))) == set(bound_variables)
+
+
+@pytest.mark.parametrize(
     "prg, domain_condition",
     [
         (
@@ -246,14 +268,14 @@ def test_domain_predicates(prg, domain, notdomain, hasdomain):
             {d(X)} :- b(X,Y), c(Y).
             e(X) :- a(X).
             {f(X)} :- d(X), a(X).
-            %{g(X)} :- d(X), a(Y), X <= Y. TODO: does replacing Y with _ work here ?
+            {g(X)} :- d(X), a(Y), X <= Y.
             """,
             {
                 ("a", 1) : {frozenset([("a", 1)])},
                 ("d", 1) : {frozenset(["b(X,Y)"])},
                 ("e", 1) : {frozenset([("e", 1)])},
                 ("f", 1) : {frozenset(["__dom_d(X)", "a(X)"])},
-                #TODO: I need to remove Y unecessary variables from domain conditions s.t. they do not overlap with other domain conditions {a(X)} :- b(X), c(X) and b(X) gets replaced by d(X,Y) and c(X) gets replaced by e(X,Y) both Y are not the same)
+                ("g", 1) : {frozenset(["__dom_d(X)"])},
             },
         ),
     ],
@@ -264,3 +286,45 @@ def test_domain_predicates_condition(prg, domain_condition):
     dp = DomainPredicates(ast)
     for pred, domain in domain_condition.items():
         assert dp._domain_condition_as_string(pred) == domain
+
+
+@pytest.mark.parametrize(
+    "prg, predicates, domain_program",
+    [
+        (
+            """
+            a(X) :- b(X,Y), c(Y).
+            {d(X)} :- b(X,Y), c(Y).
+            e(X) :- a(X).
+            {f(X)} :- d(X), a(X).
+            {g(X)} :- d(X), a(Y), X <= Y.
+            h(a(X), X+1, 42) :- g(X), not f(X).
+            i(4).
+            {i(X)} :- a(X).
+            {j(X)} :- a(X).
+            {j(Y) : b(X,Y)}.
+            """,
+            [("d", 1), ("f", 1), ("g", 1), ("h", 3), ("i", 1), ("j", 1)],
+            [
+                "__dom_d(X) :- b(X,Y).",
+                "__dom_f(X) :- __dom_d(X); a(X).",
+                "__dom_g(X) :- __dom_d(X).",
+                "__dom_h(a(X),(X+1),42) :- __dom_g(X); not __dom_f(X).",
+                "__dom_i(4).",
+                "__dom_i(X) :- a(X).",
+                "__dom_j(X) :- a(X).",
+                "__dom_j(Y) :- b(X,Y).",
+
+
+            ]
+        ),
+    ],
+)
+def test_domain_predicates_condition(prg, predicates, domain_program):
+    ast = []
+    parse_string(prg, lambda stm: ast.append((stm)))
+    dp = DomainPredicates(ast)
+    strlist = []
+    for pred in predicates:
+        strlist.extend(map(str, dp.create_domain(pred)))
+    assert sorted(strlist) == domain_program

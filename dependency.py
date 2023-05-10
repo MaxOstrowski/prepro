@@ -5,7 +5,8 @@ from itertools import product, chain
 from collections import defaultdict
 
 import networkx as nx
-from clingo.ast import ASTType, Sign
+from clingo import ast
+from clingo.ast import ASTType, Sign, ComparisonOperator
 
 from utils import collect_ast, contains_variable, transform_ast
 
@@ -88,6 +89,21 @@ def predicates(ast, signs):
     yield from disjunction_predicate(ast, signs)
     yield from conditional_literal_predicate(ast, signs)
     yield from body_predicates(ast, signs)
+
+
+def collect_bound_variables(stmlist):
+    """ yields all ast of type Variable that are in a positive symbolic literal or in a eq relation"""
+    for stm in stmlist:
+        if stm.ast_type == ASTType.Literal:
+            if stm.sign == Sign.NoSign and stm.atom.ast_type == ASTType.SymbolicAtom:
+                yield from collect_ast(stm, "Variable")
+            elif stm.sign == Sign.NoSign and stm.atom.ast_type == ASTType.Comparison:
+                guards = stm.atom.guards
+                if any(map(lambda x: x.comparison == ComparisonOperator.Equal, guards)):
+                    yield from collect_ast(stm, "Variable")
+            elif stm.sign == Sign.NoSign and stm.atom.ast_type == ASTType.BodyAggregate:
+                if stm.atom.left_guard.comparison == ComparisonOperator.Equal:
+                    yield from collect_ast(stm.atom.left_guard, "Variable")
 
 
 # TODO: create predicates as NamedTuple
@@ -213,11 +229,28 @@ class DomainPredicates:
                 for conditions in self.domain_rules[atom]:
                     ret.add(frozenset([str(x) for x in conditions]))
         return ret
+    
+    def create_domain(self, pred):
+        """
+        given a predicate, yield a list of ast
+        that represent rules to create self.domain(pred) in the logic program
+        """
+        if self.is_domain(pred):
+            return
+        pos = ast.Position("<string>", 1, 1)
+        loc = ast.Location(pos, pos)
+
+        for atom in self.domain_rules.keys():
+            if atom.symbol.name == pred[0] and len(atom.symbol.arguments) == pred[1]:
+                for conditions in self.domain_rules[atom]:
+                    atom.symbol.name = "__dom_" + atom.symbol.name
+                    yield ast.Rule(loc, atom, conditions)
+
 
     # important TODO: not only collect all possible inferences for domains but mark predicates that are not possible to compute domain for
     def __compute_domains(self, prg):
+        """ compute self.domain_rules with predicate as key and a list of conditions"""
         for rule in chain.from_iterable([x.unpool(condition=True) for x in prg]):
-        #for rule in prg:
             if rule.ast_type == ASTType.Rule:
                 head = rule.head
                 body = rule.body
@@ -246,6 +279,7 @@ class DomainPredicates:
 
         for head in self.domain_rules.keys():
             assert head.ast_type == ASTType.SymbolicAtom
+            ### filter out conditions that contain no variables from the head
             # I actually need the position and maybe subreferencing of the variables if head(f(X), X) :- body
             head_variables = list(map(lambda x : x.name, collect_ast(head, "Variable")))
 
@@ -256,6 +290,19 @@ class DomainPredicates:
                 list(filter(contains_head_var, conditions))
                 for conditions in self.domain_rules[head]
             ]
+
+            ### filter out conditions that have unbound variables
+
+            def all_bound_variables(cond):
+                all_variables = set(map(lambda x : x.name, collect_ast(cond, "Variable")))
+                return all_variables <= bound_variables
+            
+            new_conditions = []
+            for conditions in self.domain_rules[head]:
+                bound_variables = set(map(lambda x: x.name, collect_bound_variables(conditions)))
+                new_conditions.append(list(filter(all_bound_variables, conditions)))
+            self.domain_rules[head] = new_conditions
+
 
         def have_domain(lit):
             for atom in collect_ast(lit, "SymbolicAtom"):
