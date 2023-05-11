@@ -12,7 +12,7 @@ prg = []
 parse_files(files, lambda stm: prg.append(stm))
 pdg = PositivePredicateDependency(prg)
 dp = DomainPredicates(prg)
-for x in dp.create_domain(("g", 1)):
+for x in dp.create_domain(("l", 1)):
     print(x)
-#eq = EqualVariable(pdg)
-#parse_files(files, lambda stm: print(eq(stm)))
+# eq = EqualVariable(pdg)
+# parse_files(files, lambda stm: print(eq(stm)))

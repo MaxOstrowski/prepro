@@ -10,6 +10,7 @@ from clingo.ast import ASTType, Sign, ComparisonOperator
 
 from utils import collect_ast, contains_variable, transform_ast
 
+
 def body_predicates(rule, signs):
     """
     yields all predicates used in the rule body as (name, arity) that have a sign in the set signs
@@ -91,19 +92,19 @@ def predicates(ast, signs):
     yield from body_predicates(ast, signs)
 
 
-def collect_bound_variables(stmlist):
-    """ yields all ast of type Variable that are in a positive symbolic literal or in a eq relation"""
-    for stm in stmlist:
-        if stm.ast_type == ASTType.Literal:
-            if stm.sign == Sign.NoSign and stm.atom.ast_type == ASTType.SymbolicAtom:
-                yield from collect_ast(stm, "Variable")
-            elif stm.sign == Sign.NoSign and stm.atom.ast_type == ASTType.Comparison:
-                guards = stm.atom.guards
-                if any(map(lambda x: x.comparison == ComparisonOperator.Equal, guards)):
-                    yield from collect_ast(stm, "Variable")
-            elif stm.sign == Sign.NoSign and stm.atom.ast_type == ASTType.BodyAggregate:
-                if stm.atom.left_guard.comparison == ComparisonOperator.Equal:
-                    yield from collect_ast(stm.atom.left_guard, "Variable")
+# def collect_bound_variables(stmlist):
+#     """ yields all ast of type Variable that are in a positive symbolic literal or in a eq relation"""
+#     for stm in stmlist:
+#         if stm.ast_type == ASTType.Literal:
+#             if stm.sign == Sign.NoSign and stm.atom.ast_type == ASTType.SymbolicAtom:
+#                 yield from collect_ast(stm, "Variable")
+#             elif stm.sign == Sign.NoSign and stm.atom.ast_type == ASTType.Comparison:
+#                 guards = stm.atom.guards
+#                 if any(map(lambda x: x.comparison == ComparisonOperator.Equal, guards)):
+#                     yield from collect_ast(stm, "Variable")
+#             elif stm.sign == Sign.NoSign and stm.atom.ast_type == ASTType.BodyAggregate:
+#                 if stm.atom.left_guard.comparison == ComparisonOperator.Equal:
+#                     yield from collect_ast(stm.atom.left_guard, "Variable")
 
 
 # TODO: create predicates as NamedTuple
@@ -134,11 +135,16 @@ class PositivePredicateDependency:
 
 class DomainPredicates:
     def __init__(self, prg):
-        self._no_domain = set()
-        self._cycle_free_pdg = None
+        self._no_domain = (
+            set()
+        )  # set of predicates that is not already a domain predicate
+
         prg = list(prg)
         self.domains = {}  # key = ("p",3) -> ("dom",3)
         self.domain_rules = defaultdict(list)  # atom -> [conditions, ...]
+        self._too_complex = (
+            set()
+        )  # set of predicates that is too complex to provide a domain computation
         self.__compute_domain_predicates(prg)
         self.__compute_domains(prg)
 
@@ -179,18 +185,20 @@ class DomainPredicates:
                         assert cond.ast_type == ASTType.ConditionalLiteral
                         lit = list(literal_predicate(cond.literal, SIGNS))[0]
                         self._no_domain.add((lit[1], lit[2]))
-        self._cycle_free_pdg = g.copy()
+        cycle_free_pdg = g.copy()
         ### remove predicates in cycles
         for scc in nx.strongly_connected_components(g):
             if len(scc) > 1:
                 self._no_domain.update(scc)
-                self._cycle_free_pdg.remove_nodes_from(scc)
+                cycle_free_pdg.remove_nodes_from(scc)
+                self._too_complex.update(scc)
         for scc in nx.selfloop_edges(g):
             self._no_domain.add(scc[0])
-            self._cycle_free_pdg.remove_nodes_from([scc[0]])
+            cycle_free_pdg.remove_nodes_from([scc[0]])
+            self._too_complex.update([scc[0]])
 
         ### remove predicates derived by using non_domain predicates
-        for node in nx.topological_sort(self._cycle_free_pdg):
+        for node in nx.topological_sort(cycle_free_pdg):
             for pre in g.predecessors(node):
                 if pre in self._no_domain:
                     self._no_domain.add(node)
@@ -216,7 +224,7 @@ class DomainPredicates:
         if self.is_domain(pred):
             return pred
         return self.domains[pred]
-    
+
     def _domain_condition_as_string(self, pred):
         """
         function only for unit testing
@@ -229,7 +237,7 @@ class DomainPredicates:
                 for conditions in self.domain_rules[atom]:
                     ret.add(frozenset([str(x) for x in conditions]))
         return ret
-    
+
     def create_domain(self, pred):
         """
         given a predicate, yield a list of ast
@@ -246,10 +254,11 @@ class DomainPredicates:
                     atom.symbol.name = "__dom_" + atom.symbol.name
                     yield ast.Rule(loc, atom, conditions)
 
-
     # important TODO: not only collect all possible inferences for domains but mark predicates that are not possible to compute domain for
     def __compute_domains(self, prg):
-        """ compute self.domain_rules with predicate as key and a list of conditions"""
+        """compute self.domain_rules with predicate as key and a list of conditions"""
+
+        ### collect conditions for the head
         for rule in chain.from_iterable([x.unpool(condition=True) for x in prg]):
             if rule.ast_type == ASTType.Rule:
                 head = rule.head
@@ -262,52 +271,61 @@ class DomainPredicates:
                         condition = elem.condition
                         if elem.literal.sign == Sign.NoSign:
                             self.domain_rules[elem.literal.atom].append(
-                                chain(condition, body)
+                                list(chain(condition, body))
                             )
                 elif head.ast_type == ASTType.HeadAggregate:
                     for elem in head.elements:
                         assert elem.condition.literal.sign == Sign.NoSign
                         self.domain_rules[elem.condition.literal.atom].append(
-                            chain(elem.condition, body)
+                            list(chain(elem.condition, body))
                         )
                 elif head.ast_type == ASTType.Aggregate:
                     for elem in head.elements:
                         assert elem.literal.sign == Sign.NoSign
                         self.domain_rules[elem.literal.atom].append(
-                            chain(elem.condition, body)
+                            list(chain(elem.condition, body))
                         )
 
-        for head in self.domain_rules.keys():
+        def not_too_complex(pair):
+            (head, _) = pair
             assert head.ast_type == ASTType.SymbolicAtom
-            ### filter out conditions that contain no variables from the head
-            # I actually need the position and maybe subreferencing of the variables if head(f(X), X) :- body
-            head_variables = list(map(lambda x : x.name, collect_ast(head, "Variable")))
+            name = head.symbol.name
+            arity = len(head.symbol.arguments)
+            return not (name, arity) in self._too_complex
 
-            def contains_head_var(cond):
-                return any(list(map(lambda hv: contains_variable(hv, cond), head_variables)))
-            
-            self.domain_rules[head] = [
-                list(filter(contains_head_var, conditions))
-                for conditions in self.domain_rules[head]
-            ]
+        self.domain_rules = dict(filter(not_too_complex, self.domain_rules.items()))
 
-            ### filter out conditions that have unbound variables
+        # for head in self.domain_rules.keys():
 
-            def all_bound_variables(cond):
-                all_variables = set(map(lambda x : x.name, collect_ast(cond, "Variable")))
-                return all_variables <= bound_variables
-            
-            new_conditions = []
-            for conditions in self.domain_rules[head]:
-                bound_variables = set(map(lambda x: x.name, collect_bound_variables(conditions)))
-                new_conditions.append(list(filter(all_bound_variables, conditions)))
-            self.domain_rules[head] = new_conditions
+        # ### filter out conditions that contain no variables from the head
+        # head_variables = list(map(lambda x : x.name, collect_ast(head, "Variable")))
 
+        # def contains_head_var(cond):
+        #     return any(list(map(lambda hv: contains_variable(hv, cond), head_variables)))
+
+        # self.domain_rules[head] = [
+        #     list(filter(contains_head_var, conditions))
+        #     for conditions in self.domain_rules[head]
+        # ]
+
+        # ### filter out conditions that have unbound variables
+
+        # def all_bound_variables(cond):
+        #     all_variables = set(map(lambda x : x.name, collect_ast(cond, "Variable")))
+        #     return all_variables <= bound_variables
+
+        # new_conditions = []
+        # for conditions in self.domain_rules[head]:
+        #     bound_variables = set(map(lambda x: x.name, collect_bound_variables(conditions)))
+        #     new_conditions.append(list(filter(all_bound_variables, conditions)))
+        # self.domain_rules[head] = new_conditions
 
         def have_domain(lit):
             for atom in collect_ast(lit, "SymbolicAtom"):
                 if atom.symbol.ast_type == ASTType.Function:
-                    if not self.has_domain((atom.symbol.name, len(atom.symbol.arguments))):
+                    if not self.has_domain(
+                        (atom.symbol.name, len(atom.symbol.arguments))
+                    ):
                         return False
             return True
 
@@ -333,4 +351,7 @@ class DomainPredicates:
                 for conditions in self.domain_rules[head]:
                     for cond in conditions:
                         transform_ast(cond, "SymbolicAtom", replace_domain)
-                self.domains[(head.symbol.name, len(head.symbol.arguments))] = ("__dom_"+ head.symbol.name, len(head.symbol.arguments))
+                self.domains[(head.symbol.name, len(head.symbol.arguments))] = (
+                    "__dom_" + head.symbol.name,
+                    len(head.symbol.arguments),
+                )

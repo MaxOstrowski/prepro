@@ -5,7 +5,7 @@ from dependency import (
     DomainPredicates,
     PositivePredicateDependency,
     body_predicates,
-    collect_bound_variables,
+    #collect_bound_variables,
     head_predicates,
 )
 
@@ -144,11 +144,6 @@ def test_positive_dependencies(prg, result):
                 ("e", 0),
             ],
             [
-                ("a", 0),
-                ("b", 0),
-                ("c", 0),
-                ("d", 0),
-                ("e", 0),
                 ("x", 3),
             ],
         ),
@@ -192,14 +187,6 @@ def test_positive_dependencies(prg, result):
             [
                 ("y", 0),
                 ("z", 0),
-                ("a", 0),
-                ("b", 0),
-                ("c", 0),
-                ("d", 0),
-                ("e", 0),
-                ("f", 0),
-                ("g", 0),
-                ("x", 0),
                 ("w", 0),
                 ("u", 0),
                 ("v", 0),
@@ -238,25 +225,25 @@ def test_domain_predicates(prg, domain, notdomain, hasdomain):
         assert dp.has_domain(pred)
 
 
-@pytest.mark.parametrize(
-    "prg, bound_variables",
-    [
-        (":- b(X,Y), c(Y).", ["X", "Y"]),
-        (":- a(X).", ["X"]),
-        (":- d(X), a(X).", ["X"]),
-        (":- d(X), a(Y), X <= Y.", ["X", "Y"]),
-        (":- d(X), X <= Y.", ["X"]),
-        (":- not d(X), a(Y), X <= Y.", ["Y"]),
-        (":- a(X), not b(X).", ["X"]),
-        (":- X = #sum {1 : b(Y)}.", ["X"]),
-    ],
-)
-def test_bound_variables(prg, bound_variables):
-    ast = []
-    parse_string(prg, lambda stm: ast.append((stm)))
-    for stm in ast:
-        if stm.ast_type == ASTType.Rule:
-            assert set(map(lambda x: x.name, collect_bound_variables(stm.body))) == set(bound_variables)
+# @pytest.mark.parametrize(
+#     "prg, bound_variables",
+#     [
+#         (":- b(X,Y), c(Y).", ["X", "Y"]),
+#         (":- a(X).", ["X"]),
+#         (":- d(X), a(X).", ["X"]),
+#         (":- d(X), a(Y), X <= Y.", ["X", "Y"]),
+#         (":- d(X), X <= Y.", ["X"]),
+#         (":- not d(X), a(Y), X <= Y.", ["Y"]),
+#         (":- a(X), not b(X).", ["X"]),
+#         (":- X = #sum {1 : b(Y)}.", ["X"]),
+#     ],
+# )
+# def test_bound_variables(prg, bound_variables):
+#     ast = []
+#     parse_string(prg, lambda stm: ast.append((stm)))
+#     for stm in ast:
+#         if stm.ast_type == ASTType.Rule:
+#             assert set(map(lambda x: x.name, collect_bound_variables(stm.body))) == set(bound_variables)
 
 
 @pytest.mark.parametrize(
@@ -272,15 +259,15 @@ def test_bound_variables(prg, bound_variables):
             """,
             {
                 ("a", 1) : {frozenset([("a", 1)])},
-                ("d", 1) : {frozenset(["b(X,Y)"])},
+                ("d", 1) : {frozenset(["b(X,Y)", "c(Y)"])},
                 ("e", 1) : {frozenset([("e", 1)])},
                 ("f", 1) : {frozenset(["__dom_d(X)", "a(X)"])},
-                ("g", 1) : {frozenset(["__dom_d(X)"])},
+                ("g", 1) : {frozenset(["__dom_d(X)", "a(Y)", "X <= Y"])},
             },
         ),
     ],
 )
-def test_domain_predicates_condition(prg, domain_condition):
+def test_domain_predicates_condition_as_string(prg, domain_condition):
     ast = []
     parse_string(prg, lambda stm: ast.append((stm)))
     dp = DomainPredicates(ast)
@@ -303,17 +290,20 @@ def test_domain_predicates_condition(prg, domain_condition):
             {i(X)} :- a(X).
             {j(X)} :- a(X).
             {j(Y) : b(X,Y)}.
+            {k(Y)} :- Y=X+1, a(X).
+            {l(Y)} :- Y=X+1, l(X), Y < 100.
             """,
-            [("d", 1), ("f", 1), ("g", 1), ("h", 3), ("i", 1), ("j", 1)],
+            [("d", 1), ("f", 1), ("g", 1), ("h", 3), ("i", 1), ("j", 1), ("k", 1), ("l", 1)],
             [
-                "__dom_d(X) :- b(X,Y).",
+                "__dom_d(X) :- b(X,Y); c(Y).",
                 "__dom_f(X) :- __dom_d(X); a(X).",
-                "__dom_g(X) :- __dom_d(X).",
+                "__dom_g(X) :- __dom_d(X); a(Y); X <= Y.",
                 "__dom_h(a(X),(X+1),42) :- __dom_g(X); not __dom_f(X).",
                 "__dom_i(4).",
                 "__dom_i(X) :- a(X).",
                 "__dom_j(X) :- a(X).",
                 "__dom_j(Y) :- b(X,Y).",
+                "__dom_k(Y) :- Y = (X+1); a(X).",
 
 
             ]
