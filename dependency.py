@@ -1,12 +1,12 @@
 """
 A module for all predicate dependencies in the AST
 """
-from itertools import product, chain
 from collections import defaultdict
+from itertools import chain, product
 
 import networkx as nx
 from clingo import ast
-from clingo.ast import ASTType, Sign, ComparisonOperator
+from clingo.ast import ASTType, ComparisonOperator, Sign
 
 from utils import collect_ast, contains_variable, transform_ast
 
@@ -92,19 +92,27 @@ def predicates(ast, signs):
     yield from body_predicates(ast, signs)
 
 
-# def collect_bound_variables(stmlist):
-#     """ yields all ast of type Variable that are in a positive symbolic literal or in a eq relation"""
-#     for stm in stmlist:
-#         if stm.ast_type == ASTType.Literal:
-#             if stm.sign == Sign.NoSign and stm.atom.ast_type == ASTType.SymbolicAtom:
-#                 yield from collect_ast(stm, "Variable")
-#             elif stm.sign == Sign.NoSign and stm.atom.ast_type == ASTType.Comparison:
-#                 guards = stm.atom.guards
-#                 if any(map(lambda x: x.comparison == ComparisonOperator.Equal, guards)):
-#                     yield from collect_ast(stm, "Variable")
-#             elif stm.sign == Sign.NoSign and stm.atom.ast_type == ASTType.BodyAggregate:
-#                 if stm.atom.left_guard.comparison == ComparisonOperator.Equal:
-#                     yield from collect_ast(stm.atom.left_guard, "Variable")
+def collect_bound_variables(stmlist):
+    """return a list of all ast of type Variable that are in a positive symbolic literal or in a eq relation"""
+    bound_variables = set()
+    for stm in stmlist:
+        if stm.ast_type == ASTType.Literal:
+            if stm.sign == Sign.NoSign and stm.atom.ast_type == ASTType.SymbolicAtom:
+                bound_variables.update(collect_ast(stm, "Variable"))
+            elif stm.sign == Sign.NoSign and stm.atom.ast_type == ASTType.BodyAggregate:
+                if stm.atom.left_guard.comparison == ComparisonOperator.Equal:
+                    bound_variables.update(stm.atom.left_guard, "Variable")
+    changed = True
+    while changed:
+        changed = False
+        for stm in stmlist:
+            if stm.sign == Sign.NoSign and stm.atom.ast_type == ASTType.Comparison:
+                guards = stm.atom.guards
+                if any(map(lambda x: x.comparison == ComparisonOperator.Equal, guards)):
+                    variables = set(collect_ast(stm, "Variable"))
+                    if len(variables - bound_variables) <= 1:
+                        bound_variables.update(variables)
+    return bound_variables
 
 
 # TODO: create predicates as NamedTuple
@@ -286,6 +294,7 @@ class DomainPredicates:
                             list(chain(elem.condition, body))
                         )
 
+        ### remove too complex predicates from the head
         def not_too_complex(pair):
             (head, _) = pair
             assert head.ast_type == ASTType.SymbolicAtom
@@ -295,30 +304,53 @@ class DomainPredicates:
 
         self.domain_rules = dict(filter(not_too_complex, self.domain_rules.items()))
 
-        # for head in self.domain_rules.keys():
+        ### filter out conditions that can not be translated to domain conditions
+        ### like a sum calculation
 
-        # ### filter out conditions that contain no variables from the head
-        # head_variables = list(map(lambda x : x.name, collect_ast(head, "Variable")))
+        def is_dynamic_sum(cond):
+            cond = cond.atom
+            if (
+                cond.ast_type == ASTType.BodyAggregate
+                or cond.ast_type == ASTType.Aggregate
+            ):
+                for elem in cond.elements:
+                    for atom in collect_ast(elem, "SymbolicAtom"):
+                        name = atom.symbol.name
+                        arity = len(atom.symbol.arguments)
+                        if not self.is_domain((name, arity)):
+                            return True
+            return False
 
-        # def contains_head_var(cond):
-        #     return any(list(map(lambda hv: contains_variable(hv, cond), head_variables)))
+        def is_too_complex(cond):
+            for atom in collect_ast(cond, "SymbolicAtom"):
+                name = atom.symbol.name
+                arity = len(atom.symbol.arguments)
+                if (name, arity) in self._too_complex:
+                    return True
+            return False
 
-        # self.domain_rules[head] = [
-        #     list(filter(contains_head_var, conditions))
-        #     for conditions in self.domain_rules[head]
-        # ]
+        def combine_filters(cond):
+            return not (is_dynamic_sum(cond) or is_too_complex(cond))
 
-        # ### filter out conditions that have unbound variables
+        for head in self.domain_rules.keys():
+            new_rules = []
+            for conditions in self.domain_rules[head]:
+                new_rules.append(list(filter(combine_filters, conditions)))
+            self.domain_rules[head] = new_rules
 
-        # def all_bound_variables(cond):
-        #     all_variables = set(map(lambda x : x.name, collect_ast(cond, "Variable")))
-        #     return all_variables <= bound_variables
+        ### remove rules that do not bind head variables
+        ### TODO:
 
-        # new_conditions = []
-        # for conditions in self.domain_rules[head]:
-        #     bound_variables = set(map(lambda x: x.name, collect_bound_variables(conditions)))
-        #     new_conditions.append(list(filter(all_bound_variables, conditions)))
-        # self.domain_rules[head] = new_conditions
+        def has_head_bounded(pair):
+            (head, bodies) = pair
+            head_variables = set(map(lambda x: x.name, collect_ast(head, "Variable")))
+            for conditions in self.domain_rules[head]:
+                bound_variables = collect_bound_variables(conditions)
+                if head_variables > bound_variables:
+                    return False
+            return True
+
+        self.domain_rules = dict(filter(has_head_bounded, self.domain_rules.items()))
 
         def have_domain(lit):
             for atom in collect_ast(lit, "SymbolicAtom"):
@@ -340,7 +372,6 @@ class DomainPredicates:
             atom.symbol.name = self.domain((name, arity))[0]
             return atom
 
-        # TODO: missing {p(1)}. what is the domain -> dom(1)
         for head in self.domain_rules.keys():
             all_domain = True
             for conditions in self.domain_rules[head]:

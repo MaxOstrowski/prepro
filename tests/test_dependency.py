@@ -1,13 +1,9 @@
 import pytest
-from clingo.ast import Sign, Transformer, parse_string, ASTType
+from clingo.ast import ASTType, Sign, Transformer, parse_string
 
-from dependency import (
-    DomainPredicates,
-    PositivePredicateDependency,
-    body_predicates,
-    #collect_bound_variables,
-    head_predicates,
-)
+from dependency import (DomainPredicates,  # collect_bound_variables,
+                        PositivePredicateDependency, body_predicates,
+                        head_predicates)
 
 
 @pytest.mark.parametrize(
@@ -304,9 +300,25 @@ def test_domain_predicates_condition_as_string(prg, domain_condition):
                 "__dom_j(X) :- a(X).",
                 "__dom_j(Y) :- b(X,Y).",
                 "__dom_k(Y) :- Y = (X+1); a(X).",
-
-
             ]
+        ),
+        (
+            """
+            {b(Y) : a(Y)}.
+            {c(X)} :- X = #sum {1, Y: b(Y)}.
+            """,
+            [("a", 1), ("b", 1), ("c", 1),],
+            [
+                "__dom_b(Y) :- a(Y).",
+            ]
+        ),
+        (
+            """
+            {l(Y)} :- Y=X+1, l(X), Y < 100.
+            a(X) :- l(X).
+            """,
+            [("l", 1), ("a", 1), ("c", 1),],
+            []
         ),
     ],
 )
