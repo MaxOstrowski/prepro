@@ -262,7 +262,6 @@ class DomainPredicates:
                     atom.symbol.name = "__dom_" + atom.symbol.name
                     yield ast.Rule(loc, atom, conditions)
 
-    # important TODO: not only collect all possible inferences for domains but mark predicates that are not possible to compute domain for
     def __compute_domains(self, prg):
         """compute self.domain_rules with predicate as key and a list of conditions"""
 
@@ -337,9 +336,6 @@ class DomainPredicates:
             for conditions in self.domain_rules[head]:
                 new_rules.append(list(filter(combine_filters, conditions)))
             self.domain_rules[head] = new_rules
-
-        ### remove rules that do not bind head variables
-        ### TODO:
 
         def has_head_bounded(pair):
             (head, bodies) = pair
