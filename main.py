@@ -15,5 +15,7 @@ pdg = PositivePredicateDependency(prg)
 dp = DomainPredicates(prg)
 for x in dp.create_domain(("c", 1)):
     print(x)
+for x in dp._create_nextpred_for_domain(("c", 1), 0):
+    print(x)
 # eq = EqualVariable(pdg)
 # parse_files(files, lambda stm: print(eq(stm)))

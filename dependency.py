@@ -6,7 +6,21 @@ from itertools import chain, product
 
 import networkx as nx
 from clingo import ast
-from clingo.ast import ASTType, ComparisonOperator, Sign
+from clingo.ast import (
+    AggregateFunction,
+    ASTType,
+    BodyAggregate,
+    BodyAggregateElement,
+    Comparison,
+    ComparisonOperator,
+    ConditionalLiteral,
+    Function,
+    Guard,
+    Literal,
+    Sign,
+    SymbolicAtom,
+    Variable,
+)
 
 from utils import collect_ast, contains_variable, transform_ast
 
@@ -212,7 +226,7 @@ class DomainPredicates:
                     self._no_domain.add(node)
                     continue
 
-    def is_domain(self, pred):
+    def is_static(self, pred):
         """pred = (name, arity)
         returns true if predicate can be computed statically
         """
@@ -222,22 +236,40 @@ class DomainPredicates:
         """pred = (name, arity)
         returns true if a domain of pred has been computed
         """
-        return self.is_domain(pred) or pred in self.domains
+        return self.is_static(pred) or pred in self.domains
 
-    def domain(self, pred):
+    def domain_predicate(self, pred):
         """pred = (name, arity)
-        returns ast of domain predicate of pred
+        returns domain predicate of pred
         """
         assert self.has_domain(pred)
-        if self.is_domain(pred):
+        if self.is_static(pred):
             return pred
         return self.domains[pred]
+
+    def min_predicate(self, pred, position):
+        """pred = (name, arity)
+        returns min_domain predicate of pred
+        """
+        return (f"__min_{position}" + self.domain_predicate(pred)[0], 1)
+
+    def max_predicate(self, pred, position):
+        """pred = (name, arity)
+        returns max_domain predicate of pred
+        """
+        return (f"__max_{position}" + self.domain_predicate(pred)[0], 1)
+
+    def next_predicate(self, pred, position):
+        """pred = (name, arity)
+        returns next_domain predicate of pred
+        """
+        return (f"__next_{position}" + self.domain_predicate(pred)[0], 2)
 
     def _domain_condition_as_string(self, pred):
         """
         function only for unit testing
         """
-        if self.is_domain(pred):
+        if self.is_static(pred):
             return {frozenset([pred])}
         ret = set()
         for atom in self.domain_rules.keys():
@@ -251,7 +283,9 @@ class DomainPredicates:
         given a predicate, yield a list of ast
         that represent rules to create self.domain(pred) in the logic program
         """
-        if self.is_domain(pred):
+        if not self.has_domain(pred):
+            raise RuntimeError(f"Can not create domain for {pred}.")
+        if self.is_static(pred):
             return
         pos = ast.Position("<string>", 1, 1)
         loc = ast.Location(pos, pos)
@@ -259,8 +293,156 @@ class DomainPredicates:
         for atom in self.domain_rules.keys():
             if atom.symbol.name == pred[0] and len(atom.symbol.arguments) == pred[1]:
                 for conditions in self.domain_rules[atom]:
-                    atom.symbol.name = "__dom_" + atom.symbol.name
+                    atom.symbol.name = self.domain_predicate(pred)[0]
                     yield ast.Rule(loc, atom, conditions)
+
+    def _create_nextpred_for_domain(self, pred, position):
+        """
+        given a predicate, yield a list of ast
+        that represent rules to create a next predicate for self.domain(pred) in the logic program
+        includes min/max predicates
+        The next predicate is created for the 'position's variable in the predicate, starting with 0
+        """
+        if not self.has_domain(pred):
+            raise RuntimeError(
+                f"Can not create order encoding for {pred}. Unable to create domain."
+            )
+        if position >= pred[1]:
+            raise RuntimeError(
+                f"Can not create order encoding for position {position} for {pred}. Position exceeds arity, starting with 0."
+            )
+
+        def _create_projected_lit(pred, variables, sign=Sign.NoSign):
+            """
+            Given a predicate pred, create a literal with only projected variables at certain positions.
+            Given p/3, {1 : Variable(loc, "X"), 2: Variable(loc, "Y")} create Literal p(_,X,Y)
+            """
+            pos = ast.Position("<string>", 1, 1)
+            loc = ast.Location(pos, pos)
+            vars = [
+                variables[i] if i in variables else Variable(loc, "_")
+                for i in range(0, pred[1])
+            ]
+            return Literal(
+                loc,
+                sign,
+                SymbolicAtom(
+                    Function(
+                        loc,
+                        pred[0],
+                        vars,
+                        False,
+                    )
+                ),
+            )
+
+        min_pred = self.min_predicate(pred, position)
+        max_pred = self.max_predicate(pred, position)
+        next_pred = self.next_predicate(pred, position)
+        dom_pred = self.domain_predicate(pred)
+
+        pos = ast.Position("<string>", 1, 1)
+        loc = ast.Location(pos, pos)
+
+        var_X = Variable(loc, "X")
+        var_L = Variable(loc, "L")
+        var_P = Variable(loc, "P")
+        var_N = Variable(loc, "N")
+        var_B = Variable(loc, "B")
+        dom_lit_L = _create_projected_lit(dom_pred, {position: var_X})
+
+        min_body = Literal(
+            loc,
+            Sign.NoSign,
+            BodyAggregate(
+                loc,
+                Guard(ComparisonOperator.Equal, var_X),
+                AggregateFunction.Min,
+                [BodyAggregateElement([var_L], [dom_lit_L])],
+                None,
+            ),
+        )
+        ### __min_0__dom_c(X) :- X = #min { L: __dom_c(X) }.
+        yield ast.Rule(
+            loc,
+            _create_projected_lit(min_pred, {0: var_X}),
+            [min_body],
+        )
+        max_body = Literal(
+            loc,
+            Sign.NoSign,
+            BodyAggregate(
+                loc,
+                Guard(ComparisonOperator.Equal, var_X),
+                AggregateFunction.Max,
+                [BodyAggregateElement([var_L], [dom_lit_L])],
+                None,
+            ),
+        )
+        ### __max_0__dom_c(X) :- X = #max { L: __dom_c(X) }.
+        yield ast.Rule(
+            loc,
+            _create_projected_lit(max_pred, {0: var_X}),
+            [max_body],
+        )
+
+        ### __next_0__dom_c(P,N) :- __min_0__dom_c(P); __dom_c(N); N > P; not __dom_c(N): __dom_c(N), P < N < N.
+        yield ast.Rule(
+            loc,
+            _create_projected_lit(next_pred, {0: var_P, 1: var_N}),
+            [
+                _create_projected_lit(min_pred, {0: var_P}),
+                _create_projected_lit(dom_pred, {position: var_N}),
+                Literal(
+                    loc,
+                    Sign.NoSign,
+                    Comparison(var_N, [Guard(ComparisonOperator.GreaterThan, var_P)]),
+                ),
+                ConditionalLiteral(
+                    loc,
+                    _create_projected_lit(dom_pred, {position: var_B}, Sign.Negation),
+                    [
+                        _create_projected_lit(dom_pred, {position: var_B}),
+                        Comparison(
+                            var_P,
+                            [
+                                Guard(ComparisonOperator.LessThan, var_B),
+                                Guard(ComparisonOperator.LessThan, var_N),
+                            ],
+                        ),
+                    ],
+                ),
+            ],
+        )
+
+        ### __next_0__dom_c(P,N) :- __next_0__dom_c(_,P); __dom_c(N); N > P; not __dom_c(N): __dom_c(N), P < N < N.
+        yield ast.Rule(
+            loc,
+            _create_projected_lit(next_pred, {0: var_P, 1: var_N}),
+            [
+                _create_projected_lit(next_pred, {1: var_P}),
+                _create_projected_lit(dom_pred, {position: var_N}),
+                Literal(
+                    loc,
+                    Sign.NoSign,
+                    Comparison(var_N, [Guard(ComparisonOperator.GreaterThan, var_P)]),
+                ),
+                ConditionalLiteral(
+                    loc,
+                    _create_projected_lit(dom_pred, {position: var_B}, Sign.Negation),
+                    [
+                        _create_projected_lit(dom_pred, {position: var_B}),
+                        Comparison(
+                            var_P,
+                            [
+                                Guard(ComparisonOperator.LessThan, var_B),
+                                Guard(ComparisonOperator.LessThan, var_N),
+                            ],
+                        ),
+                    ],
+                ),
+            ],
+        )
 
     def __compute_domains(self, prg):
         """compute self.domain_rules with predicate as key and a list of conditions"""
@@ -316,7 +498,7 @@ class DomainPredicates:
                     for atom in collect_ast(elem, "SymbolicAtom"):
                         name = atom.symbol.name
                         arity = len(atom.symbol.arguments)
-                        if not self.is_domain((name, arity)):
+                        if not self.is_static((name, arity)):
                             return True
             return False
 
@@ -365,7 +547,7 @@ class DomainPredicates:
             name = atom.symbol.name
             arity = len(atom.symbol.arguments)
             assert self.has_domain((name, arity))
-            atom.symbol.name = self.domain((name, arity))[0]
+            atom.symbol.name = self.domain_predicate((name, arity))[0]
             return atom
 
         for head in self.domain_rules.keys():

@@ -1,8 +1,8 @@
 import pytest
 from clingo.ast import ASTType, Sign, Transformer, parse_string
 
-from dependency import (DomainPredicates,  # collect_bound_variables,
-                        PositivePredicateDependency, body_predicates,
+from dependency import DomainPredicates  # collect_bound_variables,
+from dependency import (PositivePredicateDependency, body_predicates,
                         head_predicates)
 
 
@@ -214,9 +214,9 @@ def test_domain_predicates(prg, domain, notdomain, hasdomain):
     parse_string(prg, lambda stm: ast.append((stm)))
     dp = DomainPredicates(ast)
     for pred in domain:
-        assert dp.is_domain(pred)
+        assert dp.is_static(pred)
     for pred in notdomain:
-        assert not dp.is_domain(pred)
+        assert not dp.is_static(pred)
     for pred in hasdomain:
         assert dp.has_domain(pred)
 
@@ -328,5 +328,6 @@ def test_domain_predicates_condition(prg, predicates, domain_program):
     dp = DomainPredicates(ast)
     strlist = []
     for pred in predicates:
-        strlist.extend(map(str, dp.create_domain(pred)))
+        if dp.has_domain(pred):
+            strlist.extend(map(str, dp.create_domain(pred)))
     assert sorted(strlist) == domain_program
