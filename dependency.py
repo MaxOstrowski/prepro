@@ -452,40 +452,19 @@ class DomainPredicates:
             ],
         )
 
-    def __compute_domains(self, prg):
-        """compute self.domain_rules with predicate as key and a list of conditions"""
-
-        ### collect conditions for the head
-        for rule in chain.from_iterable([x.unpool(condition=True) for x in prg]):
-            if rule.ast_type == ASTType.Rule:
-                head = rule.head
-                body = rule.body
-                if (
-                    head.ast_type == ASTType.Literal
-                    and head.sign == Sign.NoSign
-                    and head.atom.ast_type == ASTType.SymbolicAtom
-                ):
-                    self.domain_rules[head.atom].append(body)
-                elif head.ast_type == ASTType.Disjunction:
-                    for elem in head.elements:
-                        assert elem.ast_type == ASTType.ConditionalLiteral
-                        condition = elem.condition
-                        if elem.literal.sign == Sign.NoSign:
-                            self.domain_rules[elem.literal.atom].append(
-                                list(chain(condition, body))
-                            )
-                elif head.ast_type == ASTType.HeadAggregate:
-                    for elem in head.elements:
-                        assert elem.condition.literal.sign == Sign.NoSign
-                        self.domain_rules[elem.condition.literal.atom].append(
-                            list(chain(elem.condition, body))
-                        )
-                elif head.ast_type == ASTType.Aggregate:
-                    for elem in head.elements:
-                        assert elem.literal.sign == Sign.NoSign
-                        self.domain_rules[elem.literal.atom].append(
-                            list(chain(elem.condition, body))
-                        )
+    def add_domain_rule(self, atom, bodies):
+        """
+        add atom <- body[0] or body[1] ... body[n] to self.domain_rules
+        if it passes all checks to compute an actual domain
+        inserts elements in the body as their domains
+        also mark the head as not static
+        """
+        if atom.ast_type == ASTType.SymbolicAtom:
+            self._no_domain.update([(atom.symbol.name, len(atom.symbol.arguments))])
+        domain_rules = defaultdict(
+            list
+        )  # TODO: refactor, no intermediate map needed anymore
+        domain_rules[atom] = bodies
 
         ### remove too complex predicates from the head
         def not_too_complex(pair):
@@ -496,7 +475,7 @@ class DomainPredicates:
                 return not (name, arity) in self._too_complex
             return True
 
-        self.domain_rules = dict(filter(not_too_complex, self.domain_rules.items()))
+        domain_rules = dict(filter(not_too_complex, domain_rules.items()))
 
         # ### filter out conditions that can not be translated to domain conditions
         # ### like a sum calculation
@@ -526,22 +505,22 @@ class DomainPredicates:
         def combine_filters(cond):
             return not (is_dynamic_sum(cond) or is_too_complex(cond))
 
-        for head in self.domain_rules.keys():
+        for head in domain_rules.keys():
             new_rules = []
-            for conditions in self.domain_rules[head]:
+            for conditions in domain_rules[head]:
                 new_rules.append(list(filter(combine_filters, conditions)))
-            self.domain_rules[head] = new_rules
+            domain_rules[head] = new_rules
 
         def has_head_bounded(pair):
             (head, bodies) = pair
             head_variables = set(map(lambda x: x.name, collect_ast(head, "Variable")))
-            for conditions in self.domain_rules[head]:
+            for conditions in domain_rules[head]:
                 head_variables -= set(
                     map(lambda x: x.name, collect_bound_variables(conditions))
                 )
             return len(head_variables) == 0
 
-        self.domain_rules = dict(filter(has_head_bounded, self.domain_rules.items()))
+        domain_rules = dict(filter(has_head_bounded, domain_rules.items()))
 
         def have_domain(lit):
             for atom in collect_ast(lit, "SymbolicAtom"):
@@ -563,21 +542,61 @@ class DomainPredicates:
             atom.symbol.name = self.domain_predicate((name, arity))[0]
             return atom
 
-        for head in self.domain_rules.keys():
+        for head in domain_rules.keys():
             all_domain = True
-            for conditions in self.domain_rules[head]:
+            for conditions in domain_rules[head]:
                 if not all(map(have_domain, conditions)):
                     all_domain = False
             if all_domain:
                 # replace all predicates with their respective domain predicates
                 new_conditions = []
-                for conditions in self.domain_rules[head]:
+                for conditions in domain_rules[head]:
                     copy_conditions = deepcopy(conditions)
                     for cond in copy_conditions:
                         transform_ast(cond, "SymbolicAtom", replace_domain)
                     new_conditions.append(copy_conditions)
-                self.domain_rules[head] = new_conditions
+                domain_rules[head] = new_conditions
                 self.domains[(head.symbol.name, len(head.symbol.arguments))] = (
                     "__dom_" + head.symbol.name,
                     len(head.symbol.arguments),
                 )
+        self.domain_rules.update(domain_rules)
+
+    def __compute_domains(self, prg):
+        """compute self.domain_rules with atom as key and a list of conditions"""
+        domain_rules = defaultdict(list)
+        ### collect conditions for the head
+        for rule in chain.from_iterable([x.unpool(condition=True) for x in prg]):
+            if rule.ast_type == ASTType.Rule:
+                head = rule.head
+                body = rule.body
+                if (
+                    head.ast_type == ASTType.Literal
+                    and head.sign == Sign.NoSign
+                    and head.atom.ast_type == ASTType.SymbolicAtom
+                ):
+                    domain_rules[head.atom].append(body)
+                elif head.ast_type == ASTType.Disjunction:
+                    for elem in head.elements:
+                        assert elem.ast_type == ASTType.ConditionalLiteral
+                        condition = elem.condition
+                        if elem.literal.sign == Sign.NoSign:
+                            domain_rules[elem.literal.atom].append(
+                                list(chain(condition, body))
+                            )
+                elif head.ast_type == ASTType.HeadAggregate:
+                    for elem in head.elements:
+                        assert elem.condition.literal.sign == Sign.NoSign
+                        domain_rules[elem.condition.literal.atom].append(
+                            list(chain(elem.condition, body))
+                        )
+                elif head.ast_type == ASTType.Aggregate:
+                    for elem in head.elements:
+                        assert elem.literal.sign == Sign.NoSign
+                        domain_rules[elem.literal.atom].append(
+                            list(chain(elem.condition, body))
+                        )
+        for atom, bodies in domain_rules.items():
+            pred = (atom.symbol.name, len(atom.symbol.arguments))
+            if not self.is_static(pred):
+                self.add_domain_rule(atom, bodies)

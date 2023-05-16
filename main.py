@@ -15,8 +15,6 @@ parse_files(files, lambda stm: prg.append(stm))
 ### create general tooling and analyzing classes
 pdg = PositivePredicateDependency(prg)
 dp = DomainPredicates(prg)
-for i in dp.create_domain(("max", 2)):
-    print(i)
 
 ### call transformers
 eq = EqualVariable(pdg)

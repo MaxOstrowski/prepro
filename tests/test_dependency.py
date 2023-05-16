@@ -221,27 +221,6 @@ def test_domain_predicates(prg, domain, notdomain, hasdomain):
         assert dp.has_domain(pred)
 
 
-# @pytest.mark.parametrize(
-#     "prg, bound_variables",
-#     [
-#         (":- b(X,Y), c(Y).", ["X", "Y"]),
-#         (":- a(X).", ["X"]),
-#         (":- d(X), a(X).", ["X"]),
-#         (":- d(X), a(Y), X <= Y.", ["X", "Y"]),
-#         (":- d(X), X <= Y.", ["X"]),
-#         (":- not d(X), a(Y), X <= Y.", ["Y"]),
-#         (":- a(X), not b(X).", ["X"]),
-#         (":- X = #sum {1 : b(Y)}.", ["X"]),
-#     ],
-# )
-# def test_bound_variables(prg, bound_variables):
-#     ast = []
-#     parse_string(prg, lambda stm: ast.append((stm)))
-#     for stm in ast:
-#         if stm.ast_type == ASTType.Rule:
-#             assert set(map(lambda x: x.name, collect_bound_variables(stm.body))) == set(bound_variables)
-
-
 @pytest.mark.parametrize(
     "prg, domain_condition",
     [
