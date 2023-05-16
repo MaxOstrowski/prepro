@@ -129,6 +129,9 @@ class EqualVariable(Transformer):
     def __init__(self, dependency):
         self.dependency = dependency
 
+    def execute(self, prg):
+        return self.visit_sequence(prg)
+
     def visit_Rule(self, node):
         assert node.ast_type == ASTType.Rule
         pheads = predicates(node.head, {Sign.NoSign})

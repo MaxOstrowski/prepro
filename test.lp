@@ -51,7 +51,7 @@ not __dom_skill_3_3(B) : __dom_skill_3_3(B), P < B < N.
 __next_dom_skill_3_3(P,N) :- __next_dom_skill_3_3(_,P), __dom_skill_3_3(N), N > P,
 not __dom_skill_3_3(B) : __dom_skill_3_3(B), P < B < N.
 
-__chain(E, V) :- skill(E, ID, V), person(E).
-__chain(E, P) :- __chain(E, N), __next_dom_skill_3_3(P, N).
-max(E, V) :- __chain(E, V), not __chain(E, N) : __next_dom_skill_3_3(V, N).
-max(E, #inf) :- __min_dom_skill_3_3(X), not __chain(E, X), person(E).
+__chain_down___next_dom_skill_3_3(E, V) :- skill(E, ID, V), person(E).
+__chain_down___next_dom_skill_3_3(E, P) :- __chain_down___next_dom_skill_3_3(E, N), __next_dom_skill_3_3(P, N).
+max(E, V) :- __chain_down___next_dom_skill_3_3(E, V), not __chain_down___next_dom_skill_3_3(E, N) : __next_dom_skill_3_3(V, N).
+max(E, #inf) :- __min_dom_skill_3_3(X), not __chain_down___next_dom_skill_3_3(E, X), person(E).

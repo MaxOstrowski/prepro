@@ -320,6 +320,35 @@ def test_domain_predicates_condition_as_string(prg, domain_condition):
             [("l", 1), ("a", 1), ("c", 1),],
             []
         ),
+        (
+            """
+            {person(a);
+            person(b)}.
+            {
+            skill(a, ("some",1), 3);
+            skill(a, ("thing",1), 5);
+            skill(a, ("programming",1..10), 10);
+            skill(a, ("knitting",1..10), 100);
+            skill(b, t("cooking",1..10), 10);
+            skill(b, t("knitting",1..10), 1)}.
+            max(P, X) :- X = #max {V, ID : skill(P, ID, V)}, person(P).
+            """,
+            [("max", 2),],
+            []
+        ),
+        (
+            """
+            {person(a);
+            person(b)}.
+            max(P, X) :- X = #max {V, ID : skull(P, ID, V)}, person(P).
+            """,
+            [("max", 2),],
+            [
+                "__dom_max(P,X) :- X = #max { V,ID: skull(P,ID,V) }; __dom_person(P).",
+            ]
+        ),
+
+        
     ],
 )
 def test_domain_predicates_condition(prg, predicates, domain_program):

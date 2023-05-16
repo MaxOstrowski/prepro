@@ -5,22 +5,6 @@ from aggregate_equality1 import BoundComputer, EqualVariable
 from dependency import PositivePredicateDependency
 
 
-class RunEqualVariable(Transformer):
-    def __init__(self):
-        self.cbounds = set()
-        self.crest = set()
-        self.too_complicated = False
-
-    def visit_Rule(self, rule):
-        eq = EqualVariable()
-        for node in rule.body:
-            bc.compute_bounds(node)
-            self.cbounds.update([str(b) for b in bc.bounds])
-            self.crest.update([str(b) for b in bc.rest])
-            self.too_complicated = True if bc.too_complicated else self.too_complicated
-        return rule
-
-
 class RunBoundComputer(Transformer):
     def __init__(self):
         self.cbounds = set()

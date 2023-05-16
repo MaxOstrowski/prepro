@@ -7,15 +7,22 @@ from clingo.ast import ASTType, Sign, Transformer, parse_files
 
 from aggregate_equality1 import EqualVariable
 from dependency import DomainPredicates, PositivePredicateDependency
+from minmax_aggregates import MinMaxAggregator
 
 files = [sys.argv[1]]
 prg = []
 parse_files(files, lambda stm: prg.append(stm))
+### create general tooling and analyzing classes
 pdg = PositivePredicateDependency(prg)
 dp = DomainPredicates(prg)
-for x in dp.create_domain(("c", 1)):
-    print(x)
-for x in dp._create_nextpred_for_domain(("c", 1), 0):
-    print(x)
-# eq = EqualVariable(pdg)
-# parse_files(files, lambda stm: print(eq(stm)))
+for i in dp.create_domain(("max", 2)):
+    print(i)
+
+### call transformers
+eq = EqualVariable(pdg)
+prg = eq.execute(prg)
+mma = MinMaxAggregator(prg, dp)
+prg = mma.execute(prg)
+
+for i in prg:
+    print(i)

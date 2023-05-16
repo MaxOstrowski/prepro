@@ -2,6 +2,7 @@
 A module for all predicate dependencies in the AST
 """
 from collections import defaultdict
+from copy import deepcopy
 from itertools import chain, product
 
 import networkx as nx
@@ -115,7 +116,7 @@ def collect_bound_variables(stmlist):
                 bound_variables.update(collect_ast(stm, "Variable"))
             elif stm.sign == Sign.NoSign and stm.atom.ast_type == ASTType.BodyAggregate:
                 if stm.atom.left_guard.comparison == ComparisonOperator.Equal:
-                    bound_variables.update(stm.atom.left_guard, "Variable")
+                    bound_variables.update(collect_ast(stm.atom.left_guard, "Variable"))
     changed = True
     while changed:
         changed = False
@@ -293,8 +294,15 @@ class DomainPredicates:
         for atom in self.domain_rules.keys():
             if atom.symbol.name == pred[0] and len(atom.symbol.arguments) == pred[1]:
                 for conditions in self.domain_rules[atom]:
-                    atom.symbol.name = self.domain_predicate(pred)[0]
-                    yield ast.Rule(loc, atom, conditions)
+                    newatom = ast.SymbolicAtom(
+                        ast.Function(
+                            loc,
+                            self.domain_predicate(pred)[0],
+                            atom.symbol.arguments,
+                            False,
+                        )
+                    )
+                    yield ast.Rule(loc, newatom, conditions)
 
     def _create_nextpred_for_domain(self, pred, position):
         """
@@ -452,7 +460,11 @@ class DomainPredicates:
             if rule.ast_type == ASTType.Rule:
                 head = rule.head
                 body = rule.body
-                if head.ast_type == ASTType.Literal and head.sign == Sign.NoSign:
+                if (
+                    head.ast_type == ASTType.Literal
+                    and head.sign == Sign.NoSign
+                    and head.atom.ast_type == ASTType.SymbolicAtom
+                ):
                     self.domain_rules[head.atom].append(body)
                 elif head.ast_type == ASTType.Disjunction:
                     for elem in head.elements:
@@ -478,15 +490,16 @@ class DomainPredicates:
         ### remove too complex predicates from the head
         def not_too_complex(pair):
             (head, _) = pair
-            assert head.ast_type == ASTType.SymbolicAtom
-            name = head.symbol.name
-            arity = len(head.symbol.arguments)
-            return not (name, arity) in self._too_complex
+            if head.ast_type == ASTType.SymbolicAtom:
+                name = head.symbol.name
+                arity = len(head.symbol.arguments)
+                return not (name, arity) in self._too_complex
+            return True
 
         self.domain_rules = dict(filter(not_too_complex, self.domain_rules.items()))
 
-        ### filter out conditions that can not be translated to domain conditions
-        ### like a sum calculation
+        # ### filter out conditions that can not be translated to domain conditions
+        # ### like a sum calculation
 
         def is_dynamic_sum(cond):
             cond = cond.atom
@@ -523,10 +536,10 @@ class DomainPredicates:
             (head, bodies) = pair
             head_variables = set(map(lambda x: x.name, collect_ast(head, "Variable")))
             for conditions in self.domain_rules[head]:
-                bound_variables = collect_bound_variables(conditions)
-                if head_variables > bound_variables:
-                    return False
-            return True
+                head_variables -= set(
+                    map(lambda x: x.name, collect_bound_variables(conditions))
+                )
+            return len(head_variables) == 0
 
         self.domain_rules = dict(filter(has_head_bounded, self.domain_rules.items()))
 
@@ -557,9 +570,13 @@ class DomainPredicates:
                     all_domain = False
             if all_domain:
                 # replace all predicates with their respective domain predicates
+                new_conditions = []
                 for conditions in self.domain_rules[head]:
-                    for cond in conditions:
+                    copy_conditions = deepcopy(conditions)
+                    for cond in copy_conditions:
                         transform_ast(cond, "SymbolicAtom", replace_domain)
+                    new_conditions.append(copy_conditions)
+                self.domain_rules[head] = new_conditions
                 self.domains[(head.symbol.name, len(head.symbol.arguments))] = (
                     "__dom_" + head.symbol.name,
                     len(head.symbol.arguments),
