@@ -10,19 +10,25 @@ from clingo.ast import (
     Aggregate,
     AggregateFunction,
     ASTType,
+    Comparison,
+    ComparisonOperator,
     ConditionalLiteral,
     Function,
+    Guard,
     Literal,
     Location,
     Position,
     Rule,
     Sign,
     SymbolicAtom,
+    SymbolicTerm,
     Transformer,
+    Variable,
 )
+from clingo.symbol import Infimum
 
 from dependency import DomainPredicates
-from utils import collect_ast
+from utils import BodyAggAnalytics, collect_ast
 
 
 class MinMaxAggregator(Transformer):
@@ -64,11 +70,17 @@ class MinMaxAggregator(Transformer):
             # collect all literals outside that aggregate that use the same variables
             lits_with_vars = []
             lits_without_vars = []
+            in_and_outside_variables = (
+                set()
+            )  # variables that are used inside but also outside of the aggregate
             for blit in rule.body:
                 if blit == agg:
                     continue
                 blit_vars = set(map(lambda x: x.name, collect_ast(blit, "Variable")))
                 if len(blit_vars) > 0 and blit_vars <= inside_variables:
+                    in_and_outside_variables.update(
+                        inside_variables.intersection(blit_vars)
+                    )  # TODO: maybe fix an order
                     lits_with_vars.append(blit)
                 else:
                     lits_without_vars.append(blit)
@@ -95,7 +107,9 @@ class MinMaxAggregator(Transformer):
             number_of_aggregate = 0
             number_of_element = 0
             weight = elem.terms[0]
-            new_name = f"__aux_{number_of_aggregate}_{number_of_element}_{str(rule.location.begin.line)}"
+
+            # 1. create a new domain for the complete elem.condition + lits_with_vars
+            new_name = f"__max_{number_of_aggregate}_{number_of_element}_{str(rule.location.begin.line)}"
             new_predicate = (new_name, 1)
             head = SymbolicAtom(Function(loc, new_name, [weight], False))
             self.domain_predicates.add_domain_rule(
@@ -103,21 +117,147 @@ class MinMaxAggregator(Transformer):
             )
             if not self.domain_predicates.has_domain(new_predicate):
                 return [rule]
-            # 1. create a new domain for the complete elem.condition + lits_with_vars
+
+            # 2. create dom and next predicates for it, and then use it to create chain with elem.condition + lits_with_vars
             ret = list(self.domain_predicates.create_domain(new_predicate))
             ret.extend(
                 self.domain_predicates._create_nextpred_for_domain(new_predicate, 0)
             )
-            ret.append(rule)
+
+            chain_name = f"__chain_down_{new_name}"
+            next_pred = self.domain_predicates.next_predicate(new_predicate, 0)
+            min_pred = self.domain_predicates.min_predicate(new_predicate, 0)
+            # TODO: think about the tuple used in the aggregate, its probably not correct to ignore it!
+            rest_vars = sorted(
+                [Variable(loc, name) for name in in_and_outside_variables]
+            )
+            aux_head = Literal(
+                loc,
+                Sign.NoSign,
+                SymbolicAtom(Function(loc, chain_name, rest_vars + [weight], False)),
+            )
+            ret.append(Rule(loc, aux_head, list(chain(elem.condition, lits_with_vars))))
+
+            prev = Variable(loc, "__PREV")
+            next = Variable(loc, "__NEXT")
+
+            head = Literal(
+                loc,
+                Sign.NoSign,
+                SymbolicAtom(Function(loc, chain_name, rest_vars + [prev], False)),
+            )
+            body = []
+            body.append(
+                Literal(
+                    loc,
+                    Sign.NoSign,
+                    SymbolicAtom(Function(loc, chain_name, rest_vars + [next], False)),
+                )
+            )
+            body.append(
+                Literal(
+                    loc,
+                    Sign.NoSign,
+                    SymbolicAtom(Function(loc, next_pred[0], [prev, next], False)),
+                )
+            )
+            ret.append(Rule(loc, head, body))
+
+            # 3. create actual new max predicate
+            head = Literal(
+                loc,
+                Sign.NoSign,
+                SymbolicAtom(Function(loc, new_name, rest_vars + [prev], False)),
+            )
+            body = []
+            body.append(
+                Literal(
+                    loc,
+                    Sign.NoSign,
+                    SymbolicAtom(Function(loc, chain_name, rest_vars + [prev], False)),
+                )
+            )
+            body.append(
+                Literal(
+                    loc,
+                    Sign.Negation,
+                    SymbolicAtom(Function(loc, chain_name, rest_vars + [next], False)),
+                )
+            )
+            body.append(
+                Literal(
+                    loc,
+                    Sign.NoSign,
+                    SymbolicAtom(Function(loc, next_pred[0], [prev, next], False)),
+                )
+            )
+            ret.append(Rule(loc, head, body))
+
+            head = Literal(
+                loc,
+                Sign.NoSign,
+                SymbolicAtom(
+                    Function(
+                        loc, new_name, rest_vars + [SymbolicTerm(loc, Infimum)], False
+                    )
+                ),
+            )
+            body = []
+            body.append(
+                Literal(
+                    loc,
+                    Sign.NoSign,
+                    SymbolicAtom(Function(loc, min_pred[0], [next], False)),
+                )
+            )
+            body.append(
+                Literal(
+                    loc,
+                    Sign.Negation,
+                    SymbolicAtom(Function(loc, chain_name, rest_vars + [next], False)),
+                )
+            )
+            body.extend(lits_with_vars)
+            ret.append(Rule(loc, head, body))
+
+            # 3. replace original rule
+            head = rule.head
+            body = []
+
+            analytics = BodyAggAnalytics(agg.atom)
+            max_var = Variable(loc, f"__VAR{new_name}")
+            if analytics.equal_variable_bound:
+                max_var = Variable(loc, analytics.equal_variable_bound.pop(0))
+            body.append(
+                Literal(
+                    loc,
+                    Sign.NoSign,
+                    SymbolicAtom(Function(loc, new_name, rest_vars + [max_var], False)),
+                )
+            )
+            # repair bounds
+            if len(analytics.equal_variable_bound) == 1:
+                body.append(
+                    Literal(
+                        loc,
+                        Sign.NoSign,
+                        Comparison(
+                            max_var,
+                            [
+                                Guard(
+                                    ComparisonOperator.Equal,
+                                    Variable(loc, analytics.equal_variable_bound[0]),
+                                )
+                            ],
+                        ),
+                    )
+                )
+            for bound in analytics.bounds:
+                body.append(Literal(loc, Sign.NoSign, Comparison(max_var, [bound])))
+            body.extend(lits_without_vars)
+            ret.append(Rule(loc, head, body))
             return ret
 
-            # 2. create dom and next predicates for it, and then use it to create chain with elem.condition + lits_with_vars
-            # new domain is unary
-
-            # next_pred = self.domain_predicates.next_predicate(condition_pred, position)
-
-            # chain_name = f"__chain_down_{number_of_aggregate}_{number_of_element}{next_pred[0]}"
-            # print(chain_name)
         return [rule]
 
     def execute(self, prg):

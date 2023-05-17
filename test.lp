@@ -31,7 +31,7 @@ skill(a, ("programming",1..10), 10);
 skill(a, ("knitting",1..10), 100);
 skill(b, t("cooking",1..10), 10);
 skill(b, t("knitting",1..10), 1)}.
-%max(P, X) :- X = #max {V, ID : skill(P, ID, V)}, person(P).
+oldmax(P, X) :- X = #max {V, ID : skill(P, ID, V)}, person(P).
 % - I need the domain of V
 % - V needs to be static domain
 % - what if V is a formula with more than one variable ? This applies to all of them
@@ -53,5 +53,5 @@ not __dom_skill_3_3(B) : __dom_skill_3_3(B), P < B < N.
 
 __chain_down___next_dom_skill_3_3(E, V) :- skill(E, ID, V), person(E).
 __chain_down___next_dom_skill_3_3(E, P) :- __chain_down___next_dom_skill_3_3(E, N), __next_dom_skill_3_3(P, N).
-max(E, V) :- __chain_down___next_dom_skill_3_3(E, V), not __chain_down___next_dom_skill_3_3(E, N) : __next_dom_skill_3_3(V, N).
+max(E, V) :- __chain_down___next_dom_skill_3_3(E, V), not __chain_down___next_dom_skill_3_3(E, NEXT), __next_dom_skill_3_3(V, NEXT).
 max(E, #inf) :- __min_dom_skill_3_3(X), not __chain_down___next_dom_skill_3_3(E, X), person(E).

@@ -142,10 +142,10 @@ class EqualVariable(Transformer):
                 and blit.atom.ast_type == ASTType.BodyAggregate
             ):
                 agg_info = BodyAggAnalytics(blit.atom)
-                if agg_info.equal_bound is not None and not agg_info.two_equals:
+                if len(agg_info.equal_variable_bound) == 1:
                     analytics[i] = agg_info
         for i, agg_info in analytics.items():
-            if contains_variable(agg_info.equal_bound, node.head):
+            if contains_variable(agg_info.equal_variable_bound[0], node.head):
                 continue
             cont = False
             pbodies = predicates(node.body[i].atom, {Sign.NoSign})
@@ -158,7 +158,7 @@ class EqualVariable(Transformer):
                     break
             if cont:
                 continue
-            bcomp = BoundComputer(agg_info.equal_bound)
+            bcomp = BoundComputer(agg_info.equal_variable_bound[0])
             for key, blit in enumerate(node.body):
                 if key == i:
                     continue
