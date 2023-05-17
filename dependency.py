@@ -168,6 +168,7 @@ class DomainPredicates:
         self._too_complex = (
             set()
         )  # set of predicates that is too complex to provide a domain computation
+        self.created_domain = set() # set of predicates where I have already created the domain
         self.__compute_domain_predicates(prg)
         self.__compute_domains(prg)
 
@@ -283,7 +284,11 @@ class DomainPredicates:
         """
         given a predicate, yield a list of ast
         that represent rules to create self.domain(pred) in the logic program
+        Only yields these rules once, ignoring every subsequent call for the same predicate:
         """
+        if pred in self.created_domain:
+            return
+        self.created_domain.add(pred)
         if not self.has_domain(pred):
             raise RuntimeError(f"Can not create domain for {pred}.")
         if self.is_static(pred):
@@ -302,6 +307,14 @@ class DomainPredicates:
                             False,
                         )
                     )
+                    for cond in conditions:
+                        for symbol in collect_ast(cond, "SymbolicAtom"):
+                            symbol = symbol.symbol
+                            dom_pred = (symbol.name, len(symbol.arguments))
+                            if symbol.ast_type == ASTType.Function:
+                                orig_pred = [key for key, value in self.domains.items() if value == dom_pred]
+                                if orig_pred:
+                                    yield from self.create_domain(orig_pred[0])
                     yield ast.Rule(loc, newatom, conditions)
 
     def _create_nextpred_for_domain(self, pred, position):
@@ -357,7 +370,7 @@ class DomainPredicates:
         var_P = Variable(loc, "P")
         var_N = Variable(loc, "N")
         var_B = Variable(loc, "B")
-        dom_lit_L = _create_projected_lit(dom_pred, {position: var_X})
+        dom_lit_L = _create_projected_lit(dom_pred, {position: var_L})
 
         min_body = Literal(
             loc,

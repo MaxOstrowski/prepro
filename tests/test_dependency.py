@@ -323,6 +323,8 @@ def test_domain_predicates_condition_as_string(prg, domain_condition):
             """,
             [("max", 2),],
             [
+                "__dom_person(a).",
+                "__dom_person(b).",
                 "__dom_max(P,X) :- X = #max { V,ID: skull(P,ID,V) }; __dom_person(P).",
             ]
         ),
@@ -338,4 +340,4 @@ def test_domain_predicates_condition(prg, predicates, domain_program):
     for pred in predicates:
         if dp.has_domain(pred):
             strlist.extend(map(str, dp.create_domain(pred)))
-    assert sorted(strlist) == domain_program
+    assert sorted(strlist) == sorted(domain_program)

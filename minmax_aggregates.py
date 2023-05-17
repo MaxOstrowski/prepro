@@ -178,18 +178,18 @@ class MinMaxAggregator(Transformer):
                 )
             )
             body.append(
+                ConditionalLiteral(loc,
                 Literal(
                     loc,
                     Sign.Negation,
                     SymbolicAtom(Function(loc, chain_name, rest_vars + [next], False)),
-                )
-            )
-            body.append(
+                ),
+                [
                 Literal(
                     loc,
                     Sign.NoSign,
                     SymbolicAtom(Function(loc, next_pred[0], [prev, next], False)),
-                )
+                )])
             )
             ret.append(Rule(loc, head, body))
 
