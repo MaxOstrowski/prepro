@@ -37,10 +37,10 @@ __min_0__dom___max_0_0_11(X) :- X = #min { L: __dom___max_0_0_11(L) }.
 __max_0__dom___max_0_0_11(X) :- X = #max { L: __dom___max_0_0_11(L) }.
 __next_0__dom___max_0_0_11(P,N) :- __min_0__dom___max_0_0_11(P); __dom___max_0_0_11(N); N > P; not __dom___max_0_0_11(B): __dom___max_0_0_11(B), P < B < N.
 __next_0__dom___max_0_0_11(P,N) :- __next_0__dom___max_0_0_11(_,P); __dom___max_0_0_11(N); N > P; not __dom___max_0_0_11(B): __dom___max_0_0_11(B), P < B < N.
-__chain_down___max_0_0_11(P,V) :- skill(P,ID,V); person(P).
-__chain_down___max_0_0_11(P,__PREV) :- __chain_down___max_0_0_11(P,__NEXT); __next_0__dom___max_0_0_11(__PREV,__NEXT).
-__max_0_0_11(P,__PREV) :- __chain_down___max_0_0_11(P,__PREV); not __chain_down___max_0_0_11(P,__NEXT): __next_0__dom___max_0_0_11(__PREV,__NEXT).
-__max_0_0_11(P,#inf) :- __min_0__dom___max_0_0_11(__NEXT); not __chain_down___max_0_0_11(P,__NEXT); person(P).
+__chain_max___max_0_0_11(P,V) :- skill(P,ID,V); person(P).
+__chain_max___max_0_0_11(P,__PREV) :- __chain_max___max_0_0_11(P,__NEXT); __next_0__dom___max_0_0_11(__PREV,__NEXT).
+__max_0_0_11(P,__PREV) :- __chain_max___max_0_0_11(P,__PREV); not __chain_max___max_0_0_11(P,__NEXT): __next_0__dom___max_0_0_11(__PREV,__NEXT).
+__max_0_0_11(P,#inf) :- __min_0__dom___max_0_0_11(X); not __chain_max___max_0_0_11(P,X); person(P).
 max(P,X) :- __max_0_0_11(P,X).""",
         ),
     ],
