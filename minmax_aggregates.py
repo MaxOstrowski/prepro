@@ -172,7 +172,6 @@ class MinMaxAggregator(Transformer):
                     ),
                 )
             )
-
             body.append(
                 Literal(
                     loc,
