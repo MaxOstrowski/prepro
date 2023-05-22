@@ -192,11 +192,18 @@ class MinMaxAggregator(Transformer):
             ret.append(Rule(loc, head, body))
 
             # 3. create actual new max/min predicate
-            head = Literal(
-                loc,
-                Sign.NoSign,
-                SymbolicAtom(Function(loc, new_name, rest_vars + [prev], False)),
-            )
+            if agg.atom.function == AggregateFunction.Max:
+                head = Literal(
+                    loc,
+                    Sign.NoSign,
+                    SymbolicAtom(Function(loc, new_name, rest_vars + [prev], False)),
+                )
+            else:
+                head = Literal(
+                    loc,
+                    Sign.NoSign,
+                    SymbolicAtom(Function(loc, new_name, rest_vars + [next], False)),
+                )
             body = []
             if agg.atom.function == AggregateFunction.Max:
                 body.append(
