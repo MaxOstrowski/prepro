@@ -109,14 +109,12 @@ class MinMaxAggregator(Transformer):
             weight = elem.terms[0]
 
             # 1. create a new domain for the complete elem.condition + lits_with_vars
-            
 
             direction = "min"
             if agg.atom.function == AggregateFunction.Max:
-                direction = "max"    
+                direction = "max"
             new_name = f"__{direction}_{number_of_aggregate}_{number_of_element}_{str(rule.location.begin.line)}"
-            new_predicate = (new_name, 1)       
-
+            new_predicate = (new_name, 1)
 
             head = SymbolicAtom(Function(loc, new_name, [weight], False))
             self.domain_predicates.add_domain_rule(
@@ -135,7 +133,6 @@ class MinMaxAggregator(Transformer):
             if agg.atom.function == AggregateFunction.Max:
                 minmax_pred = self.domain_predicates.min_predicate(new_predicate, 0)
 
-            
             chain_name = f"__chain_{direction}_{new_name}"
             next_pred = self.domain_predicates.next_predicate(new_predicate, 0)
 
@@ -152,35 +149,29 @@ class MinMaxAggregator(Transformer):
 
             prev = Variable(loc, "__PREV")
             next = Variable(loc, "__NEXT")
-            body = []
+
+            prev_agg = next
+            next_agg = prev
             if agg.atom.function == AggregateFunction.Max:
-                head = Literal(
+                prev_agg = prev
+                next_agg = next
+
+            head = Literal(
+                loc,
+                Sign.NoSign,
+                SymbolicAtom(Function(loc, chain_name, rest_vars + [prev_agg], False)),
+            )
+
+            body = []
+            body.append(
+                Literal(
                     loc,
                     Sign.NoSign,
-                    SymbolicAtom(Function(loc, chain_name, rest_vars + [prev], False)),
+                    SymbolicAtom(
+                        Function(loc, chain_name, rest_vars + [next_agg], False)
+                    ),
                 )
-                
-                body.append(
-                    Literal(
-                        loc,
-                        Sign.NoSign,
-                        SymbolicAtom(Function(loc, chain_name, rest_vars + [next], False)),
-                    )
-                )
-            else:
-                head = Literal(
-                    loc,
-                    Sign.NoSign,
-                    SymbolicAtom(Function(loc, chain_name, rest_vars + [next], False)),
-                )
-                
-                body.append(
-                    Literal(
-                        loc,
-                        Sign.NoSign,
-                        SymbolicAtom(Function(loc, chain_name, rest_vars + [prev], False)),
-                    )
-                )
+            )
 
             body.append(
                 Literal(
@@ -192,85 +183,59 @@ class MinMaxAggregator(Transformer):
             ret.append(Rule(loc, head, body))
 
             # 3. create actual new max/min predicate
-            if agg.atom.function == AggregateFunction.Max:
-                head = Literal(
-                    loc,
-                    Sign.NoSign,
-                    SymbolicAtom(Function(loc, new_name, rest_vars + [prev], False)),
-                )
-            else:
-                head = Literal(
-                    loc,
-                    Sign.NoSign,
-                    SymbolicAtom(Function(loc, new_name, rest_vars + [next], False)),
-                )
+            head = Literal(
+                loc,
+                Sign.NoSign,
+                SymbolicAtom(Function(loc, new_name, rest_vars + [prev_agg], False)),
+            )
+
             body = []
-            if agg.atom.function == AggregateFunction.Max:
-                body.append(
-                    Literal(
-                        loc,
-                        Sign.NoSign,
-                        SymbolicAtom(Function(loc, chain_name, rest_vars + [prev], False)),
-                    )
+            body.append(
+                Literal(
+                    loc,
+                    Sign.NoSign,
+                    SymbolicAtom(
+                        Function(loc, chain_name, rest_vars + [prev_agg], False)
+                    ),
                 )
-                body.append(
-                    ConditionalLiteral(loc,
+            )
+            body.append(
+                ConditionalLiteral(
+                    loc,
                     Literal(
                         loc,
                         Sign.Negation,
-                        SymbolicAtom(Function(loc, chain_name, rest_vars + [next], False)),
+                        SymbolicAtom(
+                            Function(loc, chain_name, rest_vars + [next_agg], False)
+                        ),
                     ),
                     [
-                    Literal(
-                        loc,
-                        Sign.NoSign,
-                        SymbolicAtom(Function(loc, next_pred[0], [prev, next], False)),
-                    )])
+                        Literal(
+                            loc,
+                            Sign.NoSign,
+                            SymbolicAtom(
+                                Function(loc, next_pred[0], [prev, next], False)
+                            ),
+                        )
+                    ],
                 )
-            else:
-                body.append(
-                    Literal(
-                        loc,
-                        Sign.NoSign,
-                        SymbolicAtom(Function(loc, chain_name, rest_vars + [next], False)),
-                    )
-                )
-                body.append(
-                    ConditionalLiteral(loc,
-                    Literal(
-                        loc,
-                        Sign.Negation,
-                        SymbolicAtom(Function(loc, chain_name, rest_vars + [prev], False)),
-                    ),
-                    [
-                    Literal(
-                        loc,
-                        Sign.NoSign,
-                        SymbolicAtom(Function(loc, next_pred[0], [prev, next], False)),
-                    )])
-                )
+            )
             ret.append(Rule(loc, head, body))
 
+            border = Supremum
             if agg.atom.function == AggregateFunction.Max:
-                head = Literal(
-                    loc,
-                    Sign.NoSign,
-                    SymbolicAtom(
-                        Function(
-                            loc, new_name, rest_vars + [SymbolicTerm(loc, Infimum)], False
-                        )
-                    ),
-                )
-            else:
-                head = Literal(
-                    loc,
-                    Sign.NoSign,
-                    SymbolicAtom(
-                        Function(
-                            loc, new_name, rest_vars + [SymbolicTerm(loc, Supremum)], False
-                        )
-                    ),
-                )
+                border = Infimum
+
+            head = Literal(
+                loc,
+                Sign.NoSign,
+                SymbolicAtom(
+                    Function(
+                        loc, new_name, rest_vars + [SymbolicTerm(loc, border)], False
+                    )
+                ),
+            )
+
             body = []
             var_x = Variable(loc, "X")
 

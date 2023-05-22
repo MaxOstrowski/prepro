@@ -168,7 +168,9 @@ class DomainPredicates:
         self._too_complex = (
             set()
         )  # set of predicates that is too complex to provide a domain computation
-        self.created_domain = set() # set of predicates where I have already created the domain
+        self.created_domain = (
+            set()
+        )  # set of predicates where I have already created the domain
         self.__compute_domain_predicates(prg)
         self.__compute_domains(prg)
 
@@ -312,7 +314,11 @@ class DomainPredicates:
                             symbol = symbol.symbol
                             dom_pred = (symbol.name, len(symbol.arguments))
                             if symbol.ast_type == ASTType.Function:
-                                orig_pred = [key for key, value in self.domains.items() if value == dom_pred]
+                                orig_pred = [
+                                    key
+                                    for key, value in self.domains.items()
+                                    if value == dom_pred
+                                ]
                                 if orig_pred:
                                     yield from self.create_domain(orig_pred[0])
                     yield ast.Rule(loc, newatom, conditions)
