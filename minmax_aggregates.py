@@ -42,9 +42,9 @@ class MinMaxAggregator(Transformer):
             self.newpred = newpred
             self.mapping = mapping # simple ordered list of indices or none, to map f(A1,A2,A4) to b(A1,A4,A3,A2) have mapping [0,3,1], reverse mapping would be [0,2,None,1]
         
-        def translate_parameters(arguments):
+        def translate_parameters(self, arguments):
             ret = []
-            for oldidx, index in enumerate(mapping):
+            for oldidx, index in enumerate(self.mapping):
                 if index == None:
                     continue
                 assert len(arguments) > index
@@ -380,7 +380,6 @@ class MinMaxAggregator(Transformer):
                         if len(lhs) != len(rhs):
                             return False
                         return all(map(lambda x: potentially_unifying(*x), zip(lhs, rhs)))
-                    print("Yo", l, translation.oldpred, stm)
                     unsafe = []
                     for terms, objective in minimizes.items():
                         if pot_unif(terms, term_tuple):
@@ -397,25 +396,33 @@ class MinMaxAggregator(Transformer):
             PREV = Variable(loc, "__PREV")
             for translation, idx in temp_max_preds:
                 if minimize:
+                    # __NEXT-__PREV, __chain_max___max_0_0_4(__PREV, __NEXT) : __chain_max___max_0_0_4(P,__NEXT), __next_0__dom___max_0_0_4(__PREV,__NEXT)
                     weight = BinaryOperation(loc, BinaryOperator.Minus, NEXT, PREV)
                     priority = stm.priority
                     newpred = translation.newpred
-                    chain_name = f"__chain{newpred[0]}"
+                    chain_name = f"__chain{newpred[0]}" # TODO: remove both magic strings
                     terms = [Function(loc, chain_name, [PREV,NEXT],False)] + list(stm.terms)
                     body = [b for b in stm.body if translation.newpred in set(map(lambda x : (x[1], x[2]), chain.from_iterable(predicates(b, {Sign.NoSign}) for b in stm.body)))]
+                    oldmax = [x for x in stm.body if x not in body][0]
                     #TODO: add replacement literals into body
-                    ret.append(Minimize(loc, weight, priority, terms, body))
-                    #TODO: add two more rules for minimize statement for corner cases
-
-            # if varname is not None:
-            #     priority = stm.priority
-            #     terms = stm.terms
-            #     body = stm.body_literal
-            #     if contains_variable(varname, priority):
-            #         continue
-            #     if any( of terms t is contains_variable(varname, t):
-            #         continue
-            #     print(repr(stm))
+                    newargs = translation.translate_parameters(oldmax.atom.symbol.arguments)
+                    newargs = [NEXT if i == idx else x for i, x in enumerate(newargs)]
+                    chainpred = Literal(loc, Sign.NoSign, SymbolicAtom(Function(loc, chain_name, newargs, False)))
+                    dompred = (f"__dom_{newpred[0]}",1)
+                    nextpred = Literal(loc, Sign.NoSign, SymbolicAtom(Function(loc, self.domain_predicates.next_predicate(dompred, 0)[0], [PREV, NEXT], False)))
+                    ret.append(Minimize(loc, weight, priority, terms, [chainpred, nextpred] + body))
+                    # __NEXT, __chain_max___max_0_0_4(sup, __NEXT) : __chain_max___max_0_0_4(P,__NEXT), __min_0__dom___max_0_0_4(__NEXT)
+                    weight = NEXT
+                    terms = [Function(loc, chain_name, [SymbolicTerm(loc, Supremum),NEXT],False)] + list(stm.terms)
+                    minpred = Literal(loc, Sign.NoSign, SymbolicAtom(Function(loc, self.domain_predicates.min_predicate(dompred, 0)[0], [NEXT], False)))
+                    ret.append(Minimize(loc, weight, priority, terms, [chainpred, minpred] + body))
+                    # #inf, __chain_max___max_0_0_4(inf) : __min_0__dom___max_0_0_4(__NEXT), not __chain_max___max_0_0_4(P,__NEXT), person(P)}.
+                    # dont need inf as it is ignored in minimize
+                    #weight = SymbolicTerm(loc, Infimum)
+                    #terms = [Function(loc, chain_name, [SymbolicTerm(loc, Infimum)],False)] + list(stm.terms)
+                    #chainpred = Literal(loc, Sign.Negation, SymbolicAtom(Function(loc, chain_name, newargs, False)))
+                    #ret.append(Minimize(loc, weight, priority, terms, [minpred, chainpred] + body))
+                    #TODO: Variable bindings for inf case are missing
         return ret
 
     def execute(self, prg):
