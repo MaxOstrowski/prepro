@@ -32,19 +32,25 @@ from utils import (
     transform_ast,
 )
 
+
 class RuleDependency:
-    """ get information about heads and body dependencies """
+    """get information about heads and body dependencies"""
+
     def __init__(self, prg):
         self.deps = defaultdict(list)
         for stm in prg:
             if stm.ast_type == ASTType.Rule:
-                for head in map(lambda x: (x[1], x[2]), head_predicates(stm, {Sign.NoSign, Sign.Negation, Sign.DoubleNegation})):
+                for head in map(
+                    lambda x: (x[1], x[2]),
+                    head_predicates(
+                        stm, {Sign.NoSign, Sign.Negation, Sign.DoubleNegation}
+                    ),
+                ):
                     self.deps[head].append(stm.body)
-                
-    def get_bodies(self, head):
-        """ return all bodies of head predicate"""
-        return self.deps[head]
 
+    def get_bodies(self, head):
+        """return all bodies of head predicate"""
+        return self.deps[head]
 
 
 # TODO: create predicates as NamedTuple

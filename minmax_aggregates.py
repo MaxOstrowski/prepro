@@ -4,8 +4,8 @@
  Might also replace the usage of the resulting predicate with the order literals.
 """
 
-from itertools import chain
 from collections import defaultdict
+from itertools import chain
 
 from clingo.ast import (
     AggregateFunction,
@@ -19,29 +19,30 @@ from clingo.ast import (
     Guard,
     Literal,
     Location,
+    Minimize,
     Position,
     Rule,
     Sign,
     SymbolicAtom,
     SymbolicTerm,
     Transformer,
-    Variable,
     UnaryOperator,
-    Minimize
+    Variable,
 )
 from clingo.symbol import Infimum, Supremum
 
-from utils import BodyAggAnalytics, collect_ast, predicates, potentially_unifying
+from utils import BodyAggAnalytics, collect_ast, potentially_unifying, predicates
 
 
 class MinMaxAggregator(Transformer):
     class Translation:
-        """ translates an old predicate to a new one"""
+        """translates an old predicate to a new one"""
+
         def __init__(self, oldpred, newpred, mapping):
             self.oldpred = oldpred
             self.newpred = newpred
-            self.mapping = mapping # simple ordered list of indices or none, to map f(A1,A2,A4) to b(A1,A4,A3,A2) have mapping [0,3,1], reverse mapping would be [0,2,None,1]
-        
+            self.mapping = mapping  # simple ordered list of indices or none, to map f(A1,A2,A4) to b(A1,A4,A3,A2) have mapping [0,3,1], reverse mapping would be [0,2,None,1]
+
         def translate_parameters(self, arguments):
             ret = []
             for oldidx, index in enumerate(self.mapping):
@@ -49,9 +50,10 @@ class MinMaxAggregator(Transformer):
                     continue
                 assert len(arguments) > index
                 if index >= len(ret):
-                    ret.extend([None]*(index + 1 - len(ret)))
+                    ret.extend([None] * (index + 1 - len(ret)))
                 ret[index] = arguments[oldidx]
             return ret
+
     def __init__(self, rule_dependency, domain_predicates):
         self.rule_dependency = rule_dependency
         self.domain_predicates = domain_predicates
@@ -323,17 +325,31 @@ class MinMaxAggregator(Transformer):
                 head.ast_type == ASTType.Literal
                 and head.atom.ast_type == ASTType.SymbolicAtom
                 and head.atom.symbol.ast_type == ASTType.Function
-                and len(self.rule_dependency.get_bodies((head.atom.symbol.name, len(head.atom.symbol.arguments)))) == 1 # only this head occurence
+                and len(
+                    self.rule_dependency.get_bodies(
+                        (head.atom.symbol.name, len(head.atom.symbol.arguments))
+                    )
+                )
+                == 1  # only this head occurence
             ):
                 return ret
             symbol = head.atom.symbol
             for arg in symbol.arguments:
                 if arg.ast_type not in {ASTType.Variable, ASTType.SymbolicTerm}:
                     return ret
-            
-            mapping = [(rest_vars + [max_var]).index(arg) if arg in rest_vars + [max_var] else None for arg in symbol.arguments]
 
-            translation = self.Translation((symbol.name, len(symbol.arguments)), (new_name, len(rest_vars)+1), mapping)
+            mapping = [
+                (rest_vars + [max_var]).index(arg)
+                if arg in rest_vars + [max_var]
+                else None
+                for arg in symbol.arguments
+            ]
+
+            translation = self.Translation(
+                (symbol.name, len(symbol.arguments)),
+                (new_name, len(rest_vars) + 1),
+                mapping,
+            )
             for i, arg in enumerate(symbol.arguments):
                 if arg.ast_type == ASTType.Variable and arg.name == max_var.name:
                     if agg.atom.function == AggregateFunction.Max:
@@ -352,8 +368,12 @@ class MinMaxAggregator(Transformer):
             if stm.ast_type != ASTType.Minimize:
                 ret.append(stm)
                 continue
-                
-            term_tuple = (stm.weight, stm.priority, *stm.terms,)
+
+            term_tuple = (
+                stm.weight,
+                stm.priority,
+                *stm.terms,
+            )
             if stm.weight.ast_type == ASTType.Variable:
                 varname = stm.weight.name
                 minimize = True
@@ -369,7 +389,11 @@ class MinMaxAggregator(Transformer):
                 ret.append(stm)
                 continue
 
-            l = set(chain.from_iterable(predicates(b, {Sign.NoSign, Sign.DoubleNegation}) for b in stm.body))
+            l = set(
+                chain.from_iterable(
+                    predicates(b, {Sign.NoSign, Sign.DoubleNegation}) for b in stm.body
+                )
+            )
             l = [(x[1], x[2]) for x in l]
             # TODO: what about minimize stuff
             temp_max_preds = []
@@ -379,7 +403,10 @@ class MinMaxAggregator(Transformer):
                     def pot_unif(lhs, rhs):
                         if len(lhs) != len(rhs):
                             return False
-                        return all(map(lambda x: potentially_unifying(*x), zip(lhs, rhs)))
+                        return all(
+                            map(lambda x: potentially_unifying(*x), zip(lhs, rhs))
+                        )
+
                     unsafe = []
                     for terms, objective in minimizes.items():
                         if pot_unif(terms, term_tuple):
@@ -400,29 +427,85 @@ class MinMaxAggregator(Transformer):
                     weight = BinaryOperation(loc, BinaryOperator.Minus, NEXT, PREV)
                     priority = stm.priority
                     newpred = translation.newpred
-                    chain_name = f"__chain{newpred[0]}" # TODO: remove both magic strings
-                    terms = [Function(loc, chain_name, [PREV,NEXT],False)] + list(stm.terms)
-                    body = [b for b in stm.body if translation.newpred in set(map(lambda x : (x[1], x[2]), chain.from_iterable(predicates(b, {Sign.NoSign}) for b in stm.body)))]
+                    chain_name = (
+                        f"__chain{newpred[0]}"  # TODO: remove both magic strings
+                    )
+                    terms = [Function(loc, chain_name, [PREV, NEXT], False)] + list(
+                        stm.terms
+                    )
+                    body = [
+                        b
+                        for b in stm.body
+                        if translation.newpred
+                        in set(
+                            map(
+                                lambda x: (x[1], x[2]),
+                                chain.from_iterable(
+                                    predicates(b, {Sign.NoSign}) for b in stm.body
+                                ),
+                            )
+                        )
+                    ]
                     oldmax = [x for x in stm.body if x not in body][0]
-                    #TODO: add replacement literals into body
-                    newargs = translation.translate_parameters(oldmax.atom.symbol.arguments)
+                    # TODO: add replacement literals into body
+                    newargs = translation.translate_parameters(
+                        oldmax.atom.symbol.arguments
+                    )
                     newargs = [NEXT if i == idx else x for i, x in enumerate(newargs)]
-                    chainpred = Literal(loc, Sign.NoSign, SymbolicAtom(Function(loc, chain_name, newargs, False)))
-                    dompred = (f"__dom_{newpred[0]}",1)
-                    nextpred = Literal(loc, Sign.NoSign, SymbolicAtom(Function(loc, self.domain_predicates.next_predicate(dompred, 0)[0], [PREV, NEXT], False)))
-                    ret.append(Minimize(loc, weight, priority, terms, [chainpred, nextpred] + body))
+                    chainpred = Literal(
+                        loc,
+                        Sign.NoSign,
+                        SymbolicAtom(Function(loc, chain_name, newargs, False)),
+                    )
+                    dompred = (f"__dom_{newpred[0]}", 1)
+                    nextpred = Literal(
+                        loc,
+                        Sign.NoSign,
+                        SymbolicAtom(
+                            Function(
+                                loc,
+                                self.domain_predicates.next_predicate(dompred, 0)[0],
+                                [PREV, NEXT],
+                                False,
+                            )
+                        ),
+                    )
+                    ret.append(
+                        Minimize(
+                            loc, weight, priority, terms, [chainpred, nextpred] + body
+                        )
+                    )
                     # __NEXT, __chain_max___max_0_0_4(sup, __NEXT) : __chain_max___max_0_0_4(P,__NEXT), __min_0__dom___max_0_0_4(__NEXT)
                     weight = NEXT
-                    terms = [Function(loc, chain_name, [SymbolicTerm(loc, Supremum),NEXT],False)] + list(stm.terms)
-                    minpred = Literal(loc, Sign.NoSign, SymbolicAtom(Function(loc, self.domain_predicates.min_predicate(dompred, 0)[0], [NEXT], False)))
-                    ret.append(Minimize(loc, weight, priority, terms, [chainpred, minpred] + body))
+                    terms = [
+                        Function(
+                            loc, chain_name, [SymbolicTerm(loc, Supremum), NEXT], False
+                        )
+                    ] + list(stm.terms)
+                    minpred = Literal(
+                        loc,
+                        Sign.NoSign,
+                        SymbolicAtom(
+                            Function(
+                                loc,
+                                self.domain_predicates.min_predicate(dompred, 0)[0],
+                                [NEXT],
+                                False,
+                            )
+                        ),
+                    )
+                    ret.append(
+                        Minimize(
+                            loc, weight, priority, terms, [chainpred, minpred] + body
+                        )
+                    )
                     # #inf, __chain_max___max_0_0_4(inf) : __min_0__dom___max_0_0_4(__NEXT), not __chain_max___max_0_0_4(P,__NEXT), person(P)}.
                     # dont need inf as it is ignored in minimize
-                    #weight = SymbolicTerm(loc, Infimum)
-                    #terms = [Function(loc, chain_name, [SymbolicTerm(loc, Infimum)],False)] + list(stm.terms)
-                    #chainpred = Literal(loc, Sign.Negation, SymbolicAtom(Function(loc, chain_name, newargs, False)))
-                    #ret.append(Minimize(loc, weight, priority, terms, [minpred, chainpred] + body))
-                    #TODO: Variable bindings for inf case are missing
+                    # weight = SymbolicTerm(loc, Infimum)
+                    # terms = [Function(loc, chain_name, [SymbolicTerm(loc, Infimum)],False)] + list(stm.terms)
+                    # chainpred = Literal(loc, Sign.Negation, SymbolicAtom(Function(loc, chain_name, newargs, False)))
+                    # ret.append(Minimize(loc, weight, priority, terms, [minpred, chainpred] + body))
+                    # TODO: Variable bindings for inf case are missing
         return ret
 
     def execute(self, prg):
