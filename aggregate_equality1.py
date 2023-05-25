@@ -16,8 +16,13 @@ from clingo.ast import (
     Transformer,
 )
 
-from dependency import predicates
-from utils import BodyAggAnalytics, contains_ast, contains_variable, reverse_comparison
+from utils import (
+    BodyAggAnalytics,
+    contains_ast,
+    contains_variable,
+    predicates,
+    reverse_comparison,
+)
 
 
 class BoundComputer:

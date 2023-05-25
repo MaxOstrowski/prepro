@@ -5,11 +5,13 @@
 """
 
 from itertools import chain
+from collections import defaultdict
 
 from clingo.ast import (
-    Aggregate,
     AggregateFunction,
     ASTType,
+    BinaryOperation,
+    BinaryOperator,
     Comparison,
     ComparisonOperator,
     ConditionalLiteral,
@@ -24,16 +26,41 @@ from clingo.ast import (
     SymbolicTerm,
     Transformer,
     Variable,
+    UnaryOperator,
+    Minimize
 )
 from clingo.symbol import Infimum, Supremum
 
-from dependency import DomainPredicates
-from utils import BodyAggAnalytics, collect_ast
+from utils import BodyAggAnalytics, collect_ast, predicates, potentially_unifying
 
 
 class MinMaxAggregator(Transformer):
-    def __init__(self, prg, domain_predicates):
+    class Translation:
+        """ translates an old predicate to a new one"""
+        def __init__(self, oldpred, newpred, mapping):
+            self.oldpred = oldpred
+            self.newpred = newpred
+            self.mapping = mapping # simple ordered list of indices or none, to map f(A1,A2,A4) to b(A1,A4,A3,A2) have mapping [0,3,1], reverse mapping would be [0,2,None,1]
+        
+        def translate_parameters(arguments):
+            ret = []
+            for oldidx, index in enumerate(mapping):
+                if index == None:
+                    continue
+                assert len(arguments) > index
+                if index >= len(ret):
+                    ret.extend([None]*(index + 1 - len(ret)))
+                ret[index] = arguments[oldidx]
+            return ret
+    def __init__(self, rule_dependency, domain_predicates):
+        self.rule_dependency = rule_dependency
         self.domain_predicates = domain_predicates
+        self._max_preds = (
+            []
+        )  # list of ((name,arity), index) where index is the position of the variable indicating the maximum
+        self._min_preds = (
+            []
+        )  # list of ((name,arity), index) where index is the position of the variable indicating the maximum
 
     def _process_rule(self, rule):
         """returns a list of rules to replace this rule"""
@@ -133,7 +160,7 @@ class MinMaxAggregator(Transformer):
             if agg.atom.function == AggregateFunction.Max:
                 minmax_pred = self.domain_predicates.min_predicate(new_predicate, 0)
 
-            chain_name = f"__chain_{direction}_{new_name}"
+            chain_name = f"__chain{new_name}"
             next_pred = self.domain_predicates.next_predicate(new_predicate, 0)
 
             # TODO: think about the tuple used in the aggregate, its probably not correct to ignore it!
@@ -291,16 +318,123 @@ class MinMaxAggregator(Transformer):
                 body.append(Literal(loc, Sign.NoSign, Comparison(max_var, [bound])))
             body.extend(lits_without_vars)
             ret.append(Rule(loc, head, body))
+
+            if not (
+                head.ast_type == ASTType.Literal
+                and head.atom.ast_type == ASTType.SymbolicAtom
+                and head.atom.symbol.ast_type == ASTType.Function
+                and len(self.rule_dependency.get_bodies((head.atom.symbol.name, len(head.atom.symbol.arguments)))) == 1 # only this head occurence
+            ):
+                return ret
+            symbol = head.atom.symbol
+            for arg in symbol.arguments:
+                if arg.ast_type not in {ASTType.Variable, ASTType.SymbolicTerm}:
+                    return ret
+            
+            mapping = [(rest_vars + [max_var]).index(arg) if arg in rest_vars + [max_var] else None for arg in symbol.arguments]
+
+            translation = self.Translation((symbol.name, len(symbol.arguments)), (new_name, len(rest_vars)+1), mapping)
+            for i, arg in enumerate(symbol.arguments):
+                if arg.ast_type == ASTType.Variable and arg.name == max_var.name:
+                    if agg.atom.function == AggregateFunction.Max:
+                        self._max_preds.append((translation, i))
+                    else:
+                        self._min_preds.append((translation, i))
+
             return ret
 
         return [rule]
 
+    def _replace_results_in_sum(self, prg, minimizes):
+        """replace all predicates that computed max/minimum values with their order encoding in sum contexts"""
+        ret = []
+        for stm in prg:
+            if stm.ast_type != ASTType.Minimize:
+                ret.append(stm)
+                continue
+                
+            term_tuple = (stm.weight, stm.priority, *stm.terms,)
+            if stm.weight.ast_type == ASTType.Variable:
+                varname = stm.weight.name
+                minimize = True
+            elif (
+                stm.weight.ast_type == ASTType.UnaryOperation
+                and stm.weight.operator_type == UnaryOperator.Minus
+                and stm.weight.argument.ast_type == ASTType.Variable
+            ):
+                varname = stm.weight.argument.name
+                minimize = False
+
+            else:
+                ret.append(stm)
+                continue
+
+            l = set(chain.from_iterable(predicates(b, {Sign.NoSign, Sign.DoubleNegation}) for b in stm.body))
+            l = [(x[1], x[2]) for x in l]
+            # TODO: what about minimize stuff
+            temp_max_preds = []
+            for translation, idx in self._max_preds:
+                if translation.oldpred in l:
+                    # check if it is globally safe to assume a unique tuple semantics
+                    def pot_unif(lhs, rhs):
+                        if len(lhs) != len(rhs):
+                            return False
+                        return all(map(lambda x: potentially_unifying(*x), zip(lhs, rhs)))
+                    print("Yo", l, translation.oldpred, stm)
+                    unsafe = []
+                    for terms, objective in minimizes.items():
+                        if pot_unif(terms, term_tuple):
+                            unsafe.extend([x for x in objective if x != stm])
+
+                    if not unsafe:
+                        temp_max_preds.append((translation, idx))
+            if not temp_max_preds:
+                ret.append(stm)
+                continue
+            pos = Position("<string>", 1, 1)
+            loc = Location(pos, pos)
+            NEXT = Variable(loc, "__NEXT")
+            PREV = Variable(loc, "__PREV")
+            for translation, idx in temp_max_preds:
+                if minimize:
+                    weight = BinaryOperation(loc, BinaryOperator.Minus, NEXT, PREV)
+                    priority = stm.priority
+                    newpred = translation.newpred
+                    chain_name = f"__chain{newpred[0]}"
+                    terms = [Function(loc, chain_name, [PREV,NEXT],False)] + list(stm.terms)
+                    body = [b for b in stm.body if translation.newpred in set(map(lambda x : (x[1], x[2]), chain.from_iterable(predicates(b, {Sign.NoSign}) for b in stm.body)))]
+                    #TODO: add replacement literals into body
+                    ret.append(Minimize(loc, weight, priority, terms, body))
+                    #TODO: add two more rules for minimize statement for corner cases
+
+            # if varname is not None:
+            #     priority = stm.priority
+            #     terms = stm.terms
+            #     body = stm.body_literal
+            #     if contains_variable(varname, priority):
+            #         continue
+            #     if any( of terms t is contains_variable(varname, t):
+            #         continue
+            #     print(repr(stm))
+        return ret
+
     def execute(self, prg):
         ret = []
+        minimizes = defaultdict(list)
         for rule in prg:
+            if rule.ast_type == ASTType.Minimize:
+                minimizes[
+                    (
+                        rule.weight,
+                        rule.priority,
+                        *rule.terms,
+                    )
+                ].append(rule)
+
             if rule.ast_type != ASTType.Rule:
                 ret.append(rule)
                 continue
 
             ret.extend(self._process_rule(rule))
+        ret = self._replace_results_in_sum(ret, minimizes)
         return ret

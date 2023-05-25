@@ -23,111 +23,28 @@ from clingo.ast import (
     Variable,
 )
 
-from utils import collect_ast, contains_variable, transform_ast
+from utils import (
+    body_predicates,
+    collect_ast,
+    collect_bound_variables,
+    head_predicates,
+    literal_predicate,
+    transform_ast,
+)
 
+class RuleDependency:
+    """ get information about heads and body dependencies """
+    def __init__(self, prg):
+        self.deps = defaultdict(list)
+        for stm in prg:
+            if stm.ast_type == ASTType.Rule:
+                for head in map(lambda x: (x[1], x[2]), head_predicates(stm, {Sign.NoSign, Sign.Negation, Sign.DoubleNegation})):
+                    self.deps[head].append(stm.body)
+                
+    def get_bodies(self, head):
+        """ return all bodies of head predicate"""
+        return self.deps[head]
 
-def body_predicates(rule, signs):
-    """
-    yields all predicates used in the rule body as (name, arity) that have a sign in the set signs
-    """
-    if rule.ast_type == ASTType.Rule:
-        for blit in rule.body:
-            if blit.ast_type == ASTType.Literal:
-                yield from literal_predicate(blit, signs)
-                yield from headorbody_aggregate_predicate(blit.atom, signs)
-                yield from aggregate_predicate(blit.atom, signs)
-
-
-def literal_predicate(lit, signs):
-    """converts ast Literal into (sign, name, arity) if sign is in signs"""
-    if lit.ast_type == ASTType.Literal:
-        if lit.sign in signs and lit.atom.ast_type == ASTType.SymbolicAtom:
-            atom = lit.atom
-            if atom.symbol.ast_type == ASTType.Function:
-                yield (lit.sign, atom.symbol.name, len(atom.symbol.arguments))
-
-
-def conditional_literal_predicate(condlit, signs):
-    if condlit.ast_type != ASTType.ConditionalLiteral:
-        return
-    lit = condlit.literal
-    yield from literal_predicate(lit, signs)
-    for cond in condlit.condition:
-        yield from literal_predicate(cond, signs)
-
-
-def headorbody_aggregate_predicate(agg, signs):
-    if agg.ast_type == ASTType.BodyAggregate or agg.ast_type == ASTType.HeadAggregate:
-        for elem in agg.elements:
-            if elem.ast_type == ASTType.HeadAggregateElement:
-                yield from conditional_literal_predicate(elem.condition, signs)
-            elif elem.ast_type == ASTType.BodyAggregateElement:
-                for cond in elem.condition:
-                    # aggregate in body seems to have Literals as condition
-                    yield from literal_predicate(cond, signs)
-
-
-def aggregate_predicate(agg, signs):
-    if agg.ast_type == ASTType.Aggregate:
-        for elem in agg.elements:
-            yield from conditional_literal_predicate(elem, signs)
-            for cond in elem.condition:
-                # aggregate in body seems to have Literals as condition
-                yield from literal_predicate(cond, signs)
-
-
-def disjunction_predicate(head, signs):
-    if head.ast_type == ASTType.Disjunction:
-        for lit in head.elements:
-            yield from conditional_literal_predicate(lit, signs)
-
-
-def head_predicates(rule, signs):
-    """
-    yields all predicates used in the rule head as (name, arity) that have a sign in the set signs
-    """
-    if rule.ast_type == ASTType.Rule:
-        head = rule.head
-        yield from literal_predicate(head, signs)
-        yield from aggregate_predicate(head, signs)
-        yield from headorbody_aggregate_predicate(head, signs)
-        yield from disjunction_predicate(head, signs)
-
-
-def predicates(ast, signs):
-    """
-    yields all predicates in ast that have a sign in the set signs
-    """
-    yield from head_predicates(ast, signs)
-    yield from literal_predicate(ast, signs)
-    yield from aggregate_predicate(ast, signs)
-    yield from headorbody_aggregate_predicate(ast, signs)
-    yield from disjunction_predicate(ast, signs)
-    yield from conditional_literal_predicate(ast, signs)
-    yield from body_predicates(ast, signs)
-
-
-def collect_bound_variables(stmlist):
-    """return a list of all ast of type Variable that are in a positive symbolic literal or in a eq relation"""
-    bound_variables = set()
-    for stm in stmlist:
-        if stm.ast_type == ASTType.Literal:
-            if stm.sign == Sign.NoSign and stm.atom.ast_type == ASTType.SymbolicAtom:
-                bound_variables.update(collect_ast(stm, "Variable"))
-            elif stm.sign == Sign.NoSign and stm.atom.ast_type == ASTType.BodyAggregate:
-                if stm.atom.left_guard.comparison == ComparisonOperator.Equal:
-                    bound_variables.update(collect_ast(stm.atom.left_guard, "Variable"))
-    changed = True
-    while changed:
-        changed = False
-        for stm in stmlist:
-            if stm.sign == Sign.NoSign and stm.atom.ast_type == ASTType.Comparison:
-                guards = stm.atom.guards
-                if any(map(lambda x: x.comparison == ComparisonOperator.Equal, guards)):
-                    variables = set(collect_ast(stm, "Variable"))
-                    if len(variables - bound_variables) <= 1:
-                        bound_variables.update(variables)
-    return bound_variables
 
 
 # TODO: create predicates as NamedTuple
