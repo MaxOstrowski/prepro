@@ -6,7 +6,8 @@ import sys
 from clingo.ast import ASTType, Sign, Transformer, parse_files
 
 from aggregate_equality1 import EqualVariable
-from dependency import DomainPredicates, PositivePredicateDependency, RuleDependency
+from dependency import (DomainPredicates, PositivePredicateDependency,
+                        RuleDependency)
 from minmax_aggregates import MinMaxAggregator
 
 files = [sys.argv[1]]

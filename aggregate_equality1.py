@@ -5,24 +5,11 @@
 """
 from itertools import product
 
-from clingo.ast import (
-    ASTType,
-    Comparison,
-    Guard,
-    Literal,
-    Location,
-    Position,
-    Sign,
-    Transformer,
-)
+from clingo.ast import (ASTType, Comparison, Guard, Literal, Location,
+                        Position, Sign, Transformer)
 
-from utils import (
-    BodyAggAnalytics,
-    contains_ast,
-    contains_variable,
-    predicates,
-    reverse_comparison,
-)
+from utils import (BodyAggAnalytics, contains_ast, contains_variable,
+                   predicates, reverse_comparison)
 
 
 class BoundComputer:

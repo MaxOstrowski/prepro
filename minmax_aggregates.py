@@ -7,32 +7,16 @@
 from collections import defaultdict
 from itertools import chain
 
-from clingo.ast import (
-    AggregateFunction,
-    ASTType,
-    BinaryOperation,
-    BinaryOperator,
-    Comparison,
-    ComparisonOperator,
-    ConditionalLiteral,
-    Function,
-    Guard,
-    Literal,
-    Location,
-    Minimize,
-    Position,
-    Rule,
-    Sign,
-    SymbolicAtom,
-    SymbolicTerm,
-    Transformer,
-    UnaryOperation,
-    UnaryOperator,
-    Variable,
-)
+from clingo.ast import (AggregateFunction, ASTType, BinaryOperation,
+                        BinaryOperator, Comparison, ComparisonOperator,
+                        ConditionalLiteral, Function, Guard, Literal, Location,
+                        Minimize, Position, Rule, Sign, SymbolicAtom,
+                        SymbolicTerm, Transformer, UnaryOperation,
+                        UnaryOperator, Variable)
 from clingo.symbol import Infimum, Supremum
 
-from utils import BodyAggAnalytics, collect_ast, potentially_unifying, predicates
+from utils import (BodyAggAnalytics, collect_ast, potentially_unifying,
+                   predicates)
 
 
 def _characteristic_variables(term):

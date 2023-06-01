@@ -7,30 +7,13 @@ from itertools import chain, product
 
 import networkx as nx
 from clingo import ast
-from clingo.ast import (
-    AggregateFunction,
-    ASTType,
-    BodyAggregate,
-    BodyAggregateElement,
-    Comparison,
-    ComparisonOperator,
-    ConditionalLiteral,
-    Function,
-    Guard,
-    Literal,
-    Sign,
-    SymbolicAtom,
-    Variable,
-)
+from clingo.ast import (AggregateFunction, ASTType, BodyAggregate,
+                        BodyAggregateElement, Comparison, ComparisonOperator,
+                        ConditionalLiteral, Function, Guard, Literal, Sign,
+                        SymbolicAtom, Variable)
 
-from utils import (
-    body_predicates,
-    collect_ast,
-    collect_bound_variables,
-    head_predicates,
-    literal_predicate,
-    transform_ast,
-)
+from utils import (body_predicates, collect_ast, collect_bound_variables,
+                   head_predicates, literal_predicate, transform_ast)
 
 
 class RuleDependency:
