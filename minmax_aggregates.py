@@ -71,13 +71,9 @@ class MinMaxAggregator(Transformer):
     def __init__(self, rule_dependency, domain_predicates):
         self.rule_dependency = rule_dependency
         self.domain_predicates = domain_predicates
-        self._max_preds = (
+        self._minmax_preds = (
             []
-        )  # list of ((name,arity), index) where index is the position of the variable indicating the maximum
-        self._min_preds = (
-            []
-        )  # list of ((name,arity), index) where index is the position of the variable indicating the maximum
-
+        )  # list of ({AggregateFunction.Max, AggregateFunction.Min}, (name,arity), index) where index is the position of the variable indicating the minimum/maximum
     def _process_rule(self, rule):
         """returns a list of rules to replace this rule"""
         agg = None
@@ -366,10 +362,7 @@ class MinMaxAggregator(Transformer):
             )
             for i, arg in enumerate(symbol.arguments):
                 if arg.ast_type == ASTType.Variable and arg.name == max_var.name:
-                    if agg.atom.function == AggregateFunction.Max:
-                        self._max_preds.append((translation, i))
-                    else:
-                        self._min_preds.append((translation, i))
+                    self._minmax_preds.append((agg.atom.function, translation, i))
 
             return ret
 
@@ -410,8 +403,8 @@ class MinMaxAggregator(Transformer):
             )
             l = [(x[1], x[2]) for x in l]
             # TODO: what about minimize stuff
-            temp_max_preds = []
-            for translation, idx in self._max_preds:
+            temp_minmax_preds = []
+            for aggtype, translation, idx in self._minmax_preds:
                 if translation.oldpred in l:
                     # check if it is globally safe to assume a unique tuple semantics
                     def pot_unif(lhs, rhs):
@@ -427,22 +420,29 @@ class MinMaxAggregator(Transformer):
                             unsafe.extend([x for x in objective if x != stm])
 
                     if not unsafe:
-                        temp_max_preds.append((translation, idx))
-            if not temp_max_preds:
+                        temp_minmax_preds.append((aggtype, translation, idx))
+            if not temp_minmax_preds:
                 ret.append(stm)
                 continue
             pos = Position("<string>", 1, 1)
             loc = Location(pos, pos)
             NEXT = Variable(loc, "__NEXT")
             PREV = Variable(loc, "__PREV")
-            for translation, idx in temp_max_preds:
-                if minimize:
-                    negate_if = lambda x: x
+            if minimize:
+                negate_if = lambda x: x
+            else:
+                negate_if = lambda x: UnaryOperation(loc, UnaryOperator.Minus, x)
+            for aggtype, translation, idx in temp_minmax_preds:
+                if aggtype == AggregateFunction.Max:
+                    prev = PREV
+                    next = NEXT
                 else:
-                    negate_if = lambda x: UnaryOperation(loc, UnaryOperator.Minus, x)
-                # __NEXT-__PREV, __chain_max___max_0_0_4(__PREV, __NEXT) : __chain_max___max_0_0_4(P,__NEXT), __next_0__dom___max_0_0_4(__PREV,__NEXT)
+                    prev = NEXT
+                    next = PREV
+                
+                # (__NEXT-__PREV), __chain__max_0_0_x(__PREV,__NEXT) : __chain__max_0_0_x(P,__NEXT), __next_0__dom___max_0_0_11(__PREV,__NEXT)
                 weight = negate_if(
-                    BinaryOperation(loc, BinaryOperator.Minus, NEXT, PREV)
+                    BinaryOperation(loc, BinaryOperator.Minus, next, prev)
                 )
                 priority = stm.priority
                 newpred = translation.newpred
@@ -477,7 +477,7 @@ class MinMaxAggregator(Transformer):
                     continue
                 # TODO: add replacement literals into body
                 newargs = translation.translate_parameters(oldmax.atom.symbol.arguments)
-                newargs = [NEXT if i == idx else x for i, x in enumerate(newargs)]
+                newargs = [next if i == idx else x for i, x in enumerate(newargs)]
                 chainpred = Literal(
                     loc,
                     Sign.NoSign,
@@ -499,35 +499,36 @@ class MinMaxAggregator(Transformer):
                 ret.append(
                     Minimize(loc, weight, priority, terms, [chainpred, nextpred] + body)
                 )
-                # __NEXT, __chain_max___max_0_0_4(sup, __NEXT) : __chain_max___max_0_0_4(P,__NEXT), __min_0__dom___max_0_0_4(__NEXT)
-                weight = negate_if(NEXT)
+                # __NEXT, __chain__max_0_0_x(#sup,__NEXT) : __chain__max_0_0_x(P,__NEXT), __min_0__dom___max_0_0_x(__NEXT)
+                infsup = Infimum
+                if aggtype == AggregateFunction.Max:
+                    infsup = Supremum
+                weight = negate_if(next)
                 terms = [
                     Function(
-                        loc, chain_name, [SymbolicTerm(loc, Supremum), NEXT], False
+                        loc, chain_name, [SymbolicTerm(loc, infsup), next], False
                     )
                 ] + list(stm.terms)
-                minpred = Literal(
+                if aggtype == AggregateFunction.Max:
+                    minmaxpred = self.domain_predicates.min_predicate(dompred, 0)[0]
+                else:
+                    minmaxpred = self.domain_predicates.max_predicate(dompred, 0)[0]
+                minmaxlit = Literal(
                     loc,
                     Sign.NoSign,
                     SymbolicAtom(
                         Function(
                             loc,
-                            self.domain_predicates.min_predicate(dompred, 0)[0],
-                            [NEXT],
+                            minmaxpred,
+                            [next],
                             False,
                         )
                     ),
                 )
                 ret.append(
-                    Minimize(loc, weight, priority, terms, [chainpred, minpred] + body)
+                    Minimize(loc, weight, priority, terms, [chainpred, minmaxlit] + body)
                 )
-                # #inf, __chain_max___max_0_0_4(inf) : __min_0__dom___max_0_0_4(__NEXT), not __chain_max___max_0_0_4(P,__NEXT), person(P)}.
-                # dont need inf as it is ignored in minimize
-                # weight = SymbolicTerm(loc, Infimum)
-                # terms = [Function(loc, chain_name, [SymbolicTerm(loc, Infimum)],False)] + list(stm.terms)
-                # chainpred = Literal(loc, Sign.Negation, SymbolicAtom(Function(loc, chain_name, newargs, False)))
-                # ret.append(Minimize(loc, weight, priority, terms, [minpred, chainpred] + body))
-                # Variable bindings for inf case are missing
+                ### #inf and #sup are ignored by minimized and therefore not included (also would require more complex variable bindings)
         return ret
 
     def execute(self, prg):
