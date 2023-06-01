@@ -5,11 +5,24 @@
 """
 from itertools import product
 
-from clingo.ast import (ASTType, Comparison, Guard, Literal, Location,
-                        Position, Sign, Transformer)
+from clingo.ast import (
+    ASTType,
+    Comparison,
+    Guard,
+    Literal,
+    Location,
+    Position,
+    Sign,
+    Transformer,
+)
 
-from utils import (BodyAggAnalytics, contains_ast, contains_variable,
-                   predicates, reverse_comparison)
+from utils import (
+    BodyAggAnalytics,
+    contains_ast,
+    contains_variable,
+    predicates,
+    reverse_comparison,
+)
 
 
 class BoundComputer:
@@ -122,9 +135,11 @@ class EqualVariable(Transformer):
         self.dependency = dependency
 
     def execute(self, prg):
+        """visit all rules in the program"""
         return self.visit_sequence(prg)
 
     def visit_Rule(self, node):
+        """visit Rule callback"""
         assert node.ast_type == ASTType.Rule
         pheads = predicates(node.head, {Sign.NoSign})
         analytics = {}

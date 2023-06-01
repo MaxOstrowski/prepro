@@ -7,13 +7,35 @@ from itertools import chain, product
 
 import networkx as nx
 from clingo import ast
-from clingo.ast import (AggregateFunction, ASTType, BodyAggregate,
-                        BodyAggregateElement, Comparison, ComparisonOperator,
-                        ConditionalLiteral, Function, Guard, Literal, Sign,
-                        SymbolicAtom, Variable)
+from clingo.ast import (
+    AggregateFunction,
+    ASTType,
+    BodyAggregate,
+    BodyAggregateElement,
+    Comparison,
+    ComparisonOperator,
+    ConditionalLiteral,
+    Function,
+    Guard,
+    Literal,
+    Sign,
+    SymbolicAtom,
+    Variable,
+)
 
-from utils import (body_predicates, collect_ast, collect_bound_variables,
-                   head_predicates, literal_predicate, transform_ast)
+from utils import (
+    body_predicates,
+    collect_ast,
+    collect_bound_variables,
+    head_predicates,
+    literal_predicate,
+    transform_ast,
+)
+
+MIN_STR = "__min_"
+MAX_STR = "__max_"
+NEXT_STR = "__next_"
+DOM_STR = "__dom_"
 
 
 class RuleDependency:
@@ -38,6 +60,11 @@ class RuleDependency:
 
 # TODO: create predicates as NamedTuple
 class PositivePredicateDependency:
+    """
+    positive dependency graph of the predicate in a program
+    allows for scc check
+    """
+
     def __init__(self, prg):
         self.sccs = []
         g = nx.DiGraph()
@@ -63,6 +90,12 @@ class PositivePredicateDependency:
 
 
 class DomainPredicates:
+    """
+    Computes which predicates have static domain and which predicates
+    can be used to represent an approximation of the domain.
+    Also computes domain predicates, min/max elements and chains.
+    """
+
     def __init__(self, prg):
         self._no_domain = (
             set()
@@ -81,11 +114,11 @@ class DomainPredicates:
         self.__compute_domains(prg)
 
     def __compute_domain_predicates(self, prg):
-        g = nx.DiGraph()
+        graph = nx.DiGraph()
         SIGNS = {Sign.NoSign, Sign.Negation, Sign.DoubleNegation}
         for stm in chain.from_iterable([x.unpool(condition=True) for x in prg]):
             if stm.ast_type == ASTType.Rule:
-                g.add_edges_from(
+                graph.add_edges_from(
                     product(
                         map(
                             lambda triple: (triple[1], triple[2]),
@@ -117,21 +150,21 @@ class DomainPredicates:
                         assert cond.ast_type == ASTType.ConditionalLiteral
                         lit = list(literal_predicate(cond.literal, SIGNS))[0]
                         self._no_domain.add((lit[1], lit[2]))
-        cycle_free_pdg = g.copy()
+        cycle_free_pdg = graph.copy()
         ### remove predicates in cycles
-        for scc in nx.strongly_connected_components(g):
+        for scc in nx.strongly_connected_components(graph):
             if len(scc) > 1:
                 self._no_domain.update(scc)
                 cycle_free_pdg.remove_nodes_from(scc)
                 self._too_complex.update(scc)
-        for scc in nx.selfloop_edges(g):
+        for scc in nx.selfloop_edges(graph):
             self._no_domain.add(scc[0])
             cycle_free_pdg.remove_nodes_from([scc[0]])
             self._too_complex.update([scc[0]])
 
         ### remove predicates derived by using non_domain predicates
         for node in nx.topological_sort(cycle_free_pdg):
-            for pre in g.predecessors(node):
+            for pre in graph.predecessors(node):
                 if pre in self._no_domain:
                     self._no_domain.add(node)
                     continue
@@ -161,19 +194,19 @@ class DomainPredicates:
         """pred = (name, arity)
         returns min_domain predicate of pred
         """
-        return (f"__min_{position}" + self.domain_predicate(pred)[0], 1)
+        return (f"{MIN_STR}{position}" + self.domain_predicate(pred)[0], 1)
 
     def max_predicate(self, pred, position):
         """pred = (name, arity)
         returns max_domain predicate of pred
         """
-        return (f"__max_{position}" + self.domain_predicate(pred)[0], 1)
+        return (f"{MAX_STR}{position}" + self.domain_predicate(pred)[0], 1)
 
     def next_predicate(self, pred, position):
         """pred = (name, arity)
         returns next_domain predicate of pred
         """
-        return (f"__next_{position}" + self.domain_predicate(pred)[0], 2)
+        return (f"{NEXT_STR}{position}" + self.domain_predicate(pred)[0], 2)
 
     def _domain_condition_as_string(self, pred):
         """
@@ -252,7 +285,7 @@ class DomainPredicates:
             """
             pos = ast.Position("<string>", 1, 1)
             loc = ast.Location(pos, pos)
-            vars = [
+            vars_ = [
                 variables[i] if i in variables else Variable(loc, "_")
                 for i in range(0, pred[1])
             ]
@@ -263,7 +296,7 @@ class DomainPredicates:
                     Function(
                         loc,
                         pred[0],
-                        vars,
+                        vars_,
                         False,
                     )
                 ),
@@ -386,9 +419,10 @@ class DomainPredicates:
         """
         if atom.ast_type == ASTType.SymbolicAtom:
             self._no_domain.update([(atom.symbol.name, len(atom.symbol.arguments))])
-        domain_rules = defaultdict(
-            list
-        )  # TODO: refactor, no intermediate map needed anymore
+        # TODO: refactor, no intermediate map needed anymore, could work on self.domain_rules
+        # refactoring then only needs to take new domain rules into account
+        domain_rules = defaultdict(list)
+
         domain_rules[atom] = bodies
 
         ### remove too complex predicates from the head
@@ -407,10 +441,7 @@ class DomainPredicates:
 
         def is_dynamic_sum(cond):
             cond = cond.atom
-            if (
-                cond.ast_type == ASTType.BodyAggregate
-                or cond.ast_type == ASTType.Aggregate
-            ):
+            if cond.ast_type in (ASTType.BodyAggregate, ASTType.Aggregate):
                 for elem in cond.elements:
                     for atom in collect_ast(elem, "SymbolicAtom"):
                         name = atom.symbol.name
@@ -430,14 +461,14 @@ class DomainPredicates:
         def combine_filters(cond):
             return not (is_dynamic_sum(cond) or is_too_complex(cond))
 
-        for head in domain_rules.keys():
+        for head, all_conds in domain_rules.items():
             new_rules = []
-            for conditions in domain_rules[head]:
+            for conditions in all_conds:
                 new_rules.append(list(filter(combine_filters, conditions)))
             domain_rules[head] = new_rules
 
         def has_head_bounded(pair):
-            (head, bodies) = pair
+            (head, _) = pair
             head_variables = set(map(lambda x: x.name, collect_ast(head, "Variable")))
             for conditions in domain_rules[head]:
                 head_variables -= set(
@@ -467,24 +498,26 @@ class DomainPredicates:
             atom.symbol.name = self.domain_predicate((name, arity))[0]
             return atom
 
-        for head in domain_rules.keys():
+        for head, all_conds in domain_rules.items():
             all_domain = True
-            for conditions in domain_rules[head]:
+            for conditions in all_conds:
                 if not all(map(have_domain, conditions)):
                     all_domain = False
-            if all_domain:
-                # replace all predicates with their respective domain predicates
-                new_conditions = []
-                for conditions in domain_rules[head]:
-                    copy_conditions = deepcopy(conditions)
-                    for cond in copy_conditions:
-                        transform_ast(cond, "SymbolicAtom", replace_domain)
-                    new_conditions.append(copy_conditions)
-                domain_rules[head] = new_conditions
-                self.domains[(head.symbol.name, len(head.symbol.arguments))] = (
-                    "__dom_" + head.symbol.name,
-                    len(head.symbol.arguments),
-                )
+                    break
+            if not all_domain:
+                continue
+            # replace all predicates with their respective domain predicates
+            new_conditions = []
+            for conditions in all_conds:
+                copy_conditions = deepcopy(conditions)
+                for cond in copy_conditions:
+                    transform_ast(cond, "SymbolicAtom", replace_domain)
+                new_conditions.append(copy_conditions)
+            domain_rules[head] = new_conditions
+            self.domains[(head.symbol.name, len(head.symbol.arguments))] = (
+                DOM_STR + head.symbol.name,
+                len(head.symbol.arguments),
+            )
         self.domain_rules.update(domain_rules)
 
     def __compute_domains(self, prg):

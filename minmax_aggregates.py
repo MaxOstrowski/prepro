@@ -7,16 +7,35 @@
 from collections import defaultdict
 from itertools import chain
 
-from clingo.ast import (AggregateFunction, ASTType, BinaryOperation,
-                        BinaryOperator, Comparison, ComparisonOperator,
-                        ConditionalLiteral, Function, Guard, Literal, Location,
-                        Minimize, Position, Rule, Sign, SymbolicAtom,
-                        SymbolicTerm, Transformer, UnaryOperation,
-                        UnaryOperator, Variable)
+from clingo.ast import (
+    AggregateFunction,
+    ASTType,
+    BinaryOperation,
+    BinaryOperator,
+    Comparison,
+    ComparisonOperator,
+    ConditionalLiteral,
+    Function,
+    Guard,
+    Literal,
+    Location,
+    Minimize,
+    Position,
+    Rule,
+    Sign,
+    SymbolicAtom,
+    SymbolicTerm,
+    Transformer,
+    UnaryOperation,
+    UnaryOperator,
+    Variable,
+)
 from clingo.symbol import Infimum, Supremum
 
-from utils import (BodyAggAnalytics, collect_ast, potentially_unifying,
-                   predicates)
+from dependency import DOM_STR
+from utils import BodyAggAnalytics, collect_ast, potentially_unifying, predicates
+
+CHAIN_STR = "__chain"
 
 
 def _characteristic_variables(term):
@@ -32,16 +51,21 @@ def _characteristic_variables(term):
             yield from _characteristic_variables(i)
 
 
-class MinMaxAggregator(Transformer):
+class MinMaxAggregator:
+    """Translates some min/max aggregates into chains"""
+
     class Translation:
         """translates an old predicate to a new one"""
 
         def __init__(self, oldpred, newpred, mapping):
             self.oldpred = oldpred
             self.newpred = newpred
-            self.mapping = mapping  # simple ordered list of indices or none, to map f(A1,A2,A4) to b(A1,A4,A3,A2) have mapping [0,3,1], reverse mapping would be [0,2,None,1]
+            # simple ordered list of indices or none, to map f(A1,A2,A4) to b(A1,A4,A3,A2)
+            # have mapping [0,3,1], reverse mapping would be [0,2,None,1]
+            self.mapping = mapping
 
         def translate_parameters(self, arguments):
+            """given the mapping, return the mapped order of the argument terms"""
             ret = []
             for oldidx, index in enumerate(self.mapping):
                 if index == None:
@@ -55,9 +79,10 @@ class MinMaxAggregator(Transformer):
     def __init__(self, rule_dependency, domain_predicates):
         self.rule_dependency = rule_dependency
         self.domain_predicates = domain_predicates
-        self._minmax_preds = (
-            []
-        )  # list of ({AggregateFunction.Max, AggregateFunction.Min}, (name,arity), index) where index is the position of the variable indicating the minimum/maximum
+        # list of ({AggregateFunction.Max, AggregateFunction.Min}, (name,arity), index)
+        #  where index is the position of the variable indicating the minimum/maximum
+        self._minmax_preds = []
+
     def _process_rule(self, rule):
         """returns a list of rules to replace this rule"""
         agg = None
@@ -74,7 +99,7 @@ class MinMaxAggregator(Transformer):
                     and len(atom.elements)
                     == 1  # TODO: lift this restriction, could add constants and other literals
                     and agg
-                    == None  # TODO: lift this restriction, could have more than one agg, but the number needs to go into the chain name
+                    is None  # TODO: lift this restriction, could have more than one agg, but the number needs to go into the chain name
                 ):
                     agg = blit
         if agg is not None:
@@ -103,14 +128,14 @@ class MinMaxAggregator(Transformer):
                 if len(blit_vars) > 0 and blit_vars <= inside_variables:
                     in_and_outside_variables.update(
                         inside_variables.intersection(blit_vars)
-                    )  # TODO: maybe fix an order
+                    )
                     lits_with_vars.append(blit)
                 else:
                     lits_without_vars.append(blit)
 
             if (
                 len(elem.condition) > 1
-            ):  # TODO: create a new domain if several conditions are used, also create next for this domain
+            ):  # TODO: create a new domain if several conditions are used, also create next_ for this domain
                 return [rule]
             if (
                 elem.condition[0].ast_type != ASTType.Literal
@@ -146,7 +171,8 @@ class MinMaxAggregator(Transformer):
             if not self.domain_predicates.has_domain(new_predicate):
                 return [rule]
 
-            # 2. create dom and next predicates for it, and then use it to create chain with elem.condition + lits_with_vars
+            # 2. create dom and next_ predicates for it, and then use it to
+            # create chain with elem.condition + lits_with_vars
             ret = list(self.domain_predicates.create_domain(new_predicate))
             ret.extend(
                 self.domain_predicates._create_nextpred_for_domain(new_predicate, 0)
@@ -156,10 +182,9 @@ class MinMaxAggregator(Transformer):
             if agg.atom.function == AggregateFunction.Max:
                 minmax_pred = self.domain_predicates.min_predicate(new_predicate, 0)
 
-            chain_name = f"__chain{new_name}"
+            chain_name = f"{CHAIN_STR}{new_name}"
             next_pred = self.domain_predicates.next_predicate(new_predicate, 0)
 
-            # TODO: think about the tuple used in the aggregate, its probably not correct to ignore it!
             rest_vars = sorted(
                 [Variable(loc, name) for name in in_and_outside_variables]
             )
@@ -171,13 +196,13 @@ class MinMaxAggregator(Transformer):
             ret.append(Rule(loc, aux_head, list(chain(elem.condition, lits_with_vars))))
 
             prev = Variable(loc, "__PREV")
-            next = Variable(loc, "__NEXT")
+            next_ = Variable(loc, "__NEXT")
 
-            prev_agg = next
+            prev_agg = next_
             next_agg = prev
             if agg.atom.function == AggregateFunction.Max:
                 prev_agg = prev
-                next_agg = next
+                next_agg = next_
 
             head = Literal(
                 loc,
@@ -199,7 +224,7 @@ class MinMaxAggregator(Transformer):
                 Literal(
                     loc,
                     Sign.NoSign,
-                    SymbolicAtom(Function(loc, next_pred[0], [prev, next], False)),
+                    SymbolicAtom(Function(loc, next_pred[0], [prev, next_], False)),
                 )
             )
             ret.append(Rule(loc, head, body))
@@ -236,7 +261,7 @@ class MinMaxAggregator(Transformer):
                             loc,
                             Sign.NoSign,
                             SymbolicAtom(
-                                Function(loc, next_pred[0], [prev, next], False)
+                                Function(loc, next_pred[0], [prev, next_], False)
                             ),
                         )
                     ],
@@ -353,8 +378,15 @@ class MinMaxAggregator(Transformer):
         return [rule]
 
     def _replace_results_in_sum(self, prg, minimizes):
-        """replace all predicates that computed max/minimum values with their order encoding in sum contexts"""
+        """
+        replace all predicates that computed max/minimum values with their order encoding
+        in sum contexts
+        """
         ret = []
+        pos = Position("<string>", 1, 1)
+        loc = Location(pos, pos)
+        NEXT = Variable(loc, "__NEXT")
+        PREV = Variable(loc, "__PREV")
         for stm in prg:
             if stm.ast_type != ASTType.Minimize:
                 ret.append(stm)
@@ -386,7 +418,6 @@ class MinMaxAggregator(Transformer):
                 )
             )
             l = [(x[1], x[2]) for x in l]
-            # TODO: what about minimize stuff
             temp_minmax_preds = []
             for aggtype, translation, idx in self._minmax_preds:
                 if translation.oldpred in l:
@@ -405,32 +436,36 @@ class MinMaxAggregator(Transformer):
 
                     if not unsafe:
                         temp_minmax_preds.append((aggtype, translation, idx))
+
             if not temp_minmax_preds:
                 ret.append(stm)
                 continue
-            pos = Position("<string>", 1, 1)
-            loc = Location(pos, pos)
-            NEXT = Variable(loc, "__NEXT")
-            PREV = Variable(loc, "__PREV")
+
             if minimize:
-                negate_if = lambda x: x
+
+                def negate_if(x):
+                    return x
+
             else:
-                negate_if = lambda x: UnaryOperation(loc, UnaryOperator.Minus, x)
+
+                def negate_if(x):
+                    return UnaryOperation(loc, UnaryOperator.Minus, x)
+
             for aggtype, translation, idx in temp_minmax_preds:
                 if aggtype == AggregateFunction.Max:
                     prev = PREV
-                    next = NEXT
+                    next_ = NEXT
                 else:
                     prev = NEXT
-                    next = PREV
-                
+                    next_ = PREV
+
                 # (__NEXT-__PREV), __chain__max_0_0_x(__PREV,__NEXT) : __chain__max_0_0_x(P,__NEXT), __next_0__dom___max_0_0_11(__PREV,__NEXT)
                 weight = negate_if(
-                    BinaryOperation(loc, BinaryOperator.Minus, next, prev)
+                    BinaryOperation(loc, BinaryOperator.Minus, next_, prev)
                 )
                 priority = stm.priority
                 newpred = translation.newpred
-                chain_name = f"__chain{newpred[0]}"  # TODO: remove both magic strings
+                chain_name = f"{CHAIN_STR}{newpred[0]}"
                 terms = [Function(loc, chain_name, [PREV, NEXT], False)] + list(
                     stm.terms
                 )
@@ -448,7 +483,8 @@ class MinMaxAggregator(Transformer):
                     )
                 ]
                 oldmax = [x for x in stm.body if x not in body][0]
-                # check if all Variables from old predicate are used in the tuple identifier to make a unique semantics
+                # check if all Variables from old predicate are used in the tuple identifier
+                # to make a unique semantics
                 old_vars = set(
                     map(lambda x: x.name, collect_ast(oldmax, "Variable"))
                 ) - {varname}
@@ -456,18 +492,17 @@ class MinMaxAggregator(Transformer):
                     map(_characteristic_variables, term_tuple[2:])
                 )
                 term_vars = {x.name for x in term_vars}
-                if not (old_vars <= term_vars):
+                if not old_vars <= term_vars:
                     ret.append(stm)
                     continue
-                # TODO: add replacement literals into body
                 newargs = translation.translate_parameters(oldmax.atom.symbol.arguments)
-                newargs = [next if i == idx else x for i, x in enumerate(newargs)]
+                newargs = [next_ if i == idx else x for i, x in enumerate(newargs)]
                 chainpred = Literal(
                     loc,
                     Sign.NoSign,
                     SymbolicAtom(Function(loc, chain_name, newargs, False)),
                 )
-                dompred = (f"__dom_{newpred[0]}", 1)
+                dompred = (f"{DOM_STR}{newpred[0]}", 1)
                 nextpred = Literal(
                     loc,
                     Sign.NoSign,
@@ -487,11 +522,9 @@ class MinMaxAggregator(Transformer):
                 infsup = Infimum
                 if aggtype == AggregateFunction.Max:
                     infsup = Supremum
-                weight = negate_if(next)
+                weight = negate_if(next_)
                 terms = [
-                    Function(
-                        loc, chain_name, [SymbolicTerm(loc, infsup), next], False
-                    )
+                    Function(loc, chain_name, [SymbolicTerm(loc, infsup), next_], False)
                 ] + list(stm.terms)
                 if aggtype == AggregateFunction.Max:
                     minmaxpred = self.domain_predicates.min_predicate(dompred, 0)[0]
@@ -504,18 +537,25 @@ class MinMaxAggregator(Transformer):
                         Function(
                             loc,
                             minmaxpred,
-                            [next],
+                            [next_],
                             False,
                         )
                     ),
                 )
                 ret.append(
-                    Minimize(loc, weight, priority, terms, [chainpred, minmaxlit] + body)
+                    Minimize(
+                        loc, weight, priority, terms, [chainpred, minmaxlit] + body
+                    )
                 )
-                ### #inf and #sup are ignored by minimized and therefore not included (also would require more complex variable bindings)
+                # #inf and #sup are ignored by minimized and therefore not included
+                # (also would require more complex variable bindings)
         return ret
 
     def execute(self, prg):
+        """
+        replace easy min/max aggregates with chaining rules
+        also replace the usage of the results in sum and optimize conditions
+        """
         ret = []
         minimizes = defaultdict(list)
         for rule in prg:
