@@ -440,6 +440,8 @@ class DomainPredicates:
         # ### like a sum calculation
 
         def is_dynamic_sum(cond):
+            if cond.ast_type != ASTType.Literal:  # maybe conditional literal
+                return False
             cond = cond.atom
             if cond.ast_type in (ASTType.BodyAggregate, ASTType.Aggregate):
                 for elem in cond.elements:
