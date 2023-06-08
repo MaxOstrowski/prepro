@@ -273,7 +273,7 @@ def collect_bound_variables(stmlist):
     while changed:
         changed = False
         for stm in stmlist:
-            if stm.sign == Sign.NoSign and stm.atom.ast_type == ASTType.Comparison:
+            if stm.ast_type == ASTType.Literal and stm.sign == Sign.NoSign and stm.atom.ast_type == ASTType.Comparison:
                 guards = stm.atom.guards
                 if any(map(lambda x: x.comparison == ComparisonOperator.Equal, guards)):
                     variables = set(collect_ast(stm, "Variable"))
