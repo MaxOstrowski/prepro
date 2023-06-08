@@ -5,25 +5,9 @@
 """
 from itertools import product
 
-from clingo.ast import (
-    ASTType,
-    Comparison,
-    Guard,
-    Literal,
-    Location,
-    Position,
-    Sign,
-    Transformer,
-)
+from clingo.ast import ASTType, Comparison, Guard, Literal, Location, Position, Sign, Transformer
 
-from utils import (
-    BodyAggAnalytics,
-    contains_ast,
-    contains_variable,
-    predicates,
-    rhs2lhs_comparison,
-    negate_comparison,
-)
+from utils import BodyAggAnalytics, contains_ast, contains_variable, negate_comparison, predicates, rhs2lhs_comparison
 
 
 class BoundComputer:
@@ -43,15 +27,12 @@ class BoundComputer:
         else:
             self.too_complicated = (
                 True
-                if contains_variable(self.varname, lhs)
-                or contains_variable(self.varname, rhs)
+                if contains_variable(self.varname, lhs) or contains_variable(self.varname, rhs)
                 else self.too_complicated
             )
             pos = Position("<string>", 1, 1)
             loc = Location(pos, pos)
-            self.rest.append(
-                Literal(loc, Sign.NoSign, Comparison(lhs, [Guard(op, rhs)]))
-            )
+            self.rest.append(Literal(loc, Sign.NoSign, Comparison(lhs, [Guard(op, rhs)])))
 
     def compute_bounds(self, literal):
         """
@@ -68,10 +49,7 @@ class BoundComputer:
             self.too_complicated = True
             return
 
-        if (
-            literal.ast_type != ASTType.Literal
-            or literal.atom.ast_type != ASTType.Comparison
-        ):
+        if literal.ast_type != ASTType.Literal or literal.atom.ast_type != ASTType.Comparison:
             self.too_complicated = True
             return
 
@@ -82,23 +60,14 @@ class BoundComputer:
             self.too_complicated = True
             return
 
-        if (
-            comp.term.ast_type == ASTType.Variable
-            and comp.term.name == self.varname
-            and len(comp.guards) == 1
-        ):
+        if comp.term.ast_type == ASTType.Variable and comp.term.name == self.varname and len(comp.guards) == 1:
             if sign == Sign.Negation:
-                newguard = comp.guards[0].update(
-                    comparison=negate_comparison(comp.guards[0].comparison)
-                )
+                newguard = comp.guards[0].update(comparison=negate_comparison(comp.guards[0].comparison))
                 comp = comp.update(guards=[newguard])
             self.bounds.append(comp)
         elif not contains_variable(self.varname, comp.term) and len(comp.guards) == 1:
             guard = comp.guards[0]
-            if (
-                guard.term.ast_type == ASTType.Variable
-                and guard.term.name == self.varname
-            ):
+            if guard.term.ast_type == ASTType.Variable and guard.term.name == self.varname:
                 newcomparison = (
                     negate_comparison(rhs2lhs_comparison(guard.comparison))
                     if sign != Sign.NoSign
@@ -145,10 +114,7 @@ class EqualVariable(Transformer):
         pheads = predicates(node.head, {Sign.NoSign})
         analytics = {}
         for i, blit in enumerate(node.body):
-            if (
-                blit.ast_type == ASTType.Literal
-                and blit.atom.ast_type == ASTType.BodyAggregate
-            ):
+            if blit.ast_type == ASTType.Literal and blit.atom.ast_type == ASTType.BodyAggregate:
                 agg_info = BodyAggAnalytics(blit.atom)
                 if len(agg_info.equal_variable_bound) == 1:
                     analytics[i] = agg_info
@@ -180,15 +146,9 @@ class EqualVariable(Transformer):
                     agg = agg.update(left_guard=None, right_guard=None)
                     if len(bcomp.bounds) >= 1:
                         agg = agg.update(
-                            left_guard=bcomp.bounds[0].update(
-                                comparison=rhs2lhs_comparison(
-                                    bcomp.bounds[0].comparison
-                                )
-                            )
+                            left_guard=bcomp.bounds[0].update(comparison=rhs2lhs_comparison(bcomp.bounds[0].comparison))
                         )
                     if len(bcomp.bounds) == 2:
                         agg = agg.update(right_guard=bcomp.bounds[1])
-                    return node.update(
-                        body=[node.body[i].update(atom=agg, sign=sign)] + bcomp.rest
-                    )
+                    return node.update(body=[node.body[i].update(atom=agg, sign=sign)] + bcomp.rest)
         return node

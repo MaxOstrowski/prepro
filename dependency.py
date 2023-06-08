@@ -47,9 +47,7 @@ class RuleDependency:
             if stm.ast_type == ASTType.Rule:
                 for head in map(
                     lambda x: (x[1], x[2]),
-                    head_predicates(
-                        stm, {Sign.NoSign, Sign.Negation, Sign.DoubleNegation}
-                    ),
+                    head_predicates(stm, {Sign.NoSign, Sign.Negation, Sign.DoubleNegation}),
                 ):
                     self.deps[head].append(stm.body)
 
@@ -97,19 +95,13 @@ class DomainPredicates:
     """
 
     def __init__(self, prg):
-        self._no_domain = (
-            set()
-        )  # set of predicates that is not already a domain predicate
+        self._no_domain = set()  # set of predicates that is not already a domain predicate
 
         prg = list(prg)
         self.domains = {}  # key = ("p",3) -> ("dom",3)
         self.domain_rules = defaultdict(list)  # atom -> [conditions, ...]
-        self._too_complex = (
-            set()
-        )  # set of predicates that is too complex to provide a domain computation
-        self.created_domain = (
-            set()
-        )  # set of predicates where I have already created the domain
+        self._too_complex = set()  # set of predicates that is too complex to provide a domain computation
+        self.created_domain = set()  # set of predicates where I have already created the domain
         self.__compute_domain_predicates(prg)
         self.__compute_domains(prg)
 
@@ -253,11 +245,7 @@ class DomainPredicates:
                             symbol = symbol.symbol
                             dom_pred = (symbol.name, len(symbol.arguments))
                             if symbol.ast_type == ASTType.Function:
-                                orig_pred = [
-                                    key
-                                    for key, value in self.domains.items()
-                                    if value == dom_pred
-                                ]
+                                orig_pred = [key for key, value in self.domains.items() if value == dom_pred]
                                 if orig_pred:
                                     yield from self.create_domain(orig_pred[0])
                     yield ast.Rule(loc, newatom, conditions)
@@ -270,9 +258,7 @@ class DomainPredicates:
         The next predicate is created for the 'position's variable in the predicate, starting with 0
         """
         if not self.has_domain(pred):
-            raise RuntimeError(
-                f"Can not create order encoding for {pred}. Unable to create domain."
-            )
+            raise RuntimeError(f"Can not create order encoding for {pred}. Unable to create domain.")
         if position >= pred[1]:
             raise RuntimeError(
                 f"Can not create order encoding for position {position} for {pred}. Position exceeds arity, starting with 0."
@@ -285,10 +271,7 @@ class DomainPredicates:
             """
             pos = ast.Position("<string>", 1, 1)
             loc = ast.Location(pos, pos)
-            vars_ = [
-                variables[i] if i in variables else Variable(loc, "_")
-                for i in range(0, pred[1])
-            ]
+            vars_ = [variables[i] if i in variables else Variable(loc, "_") for i in range(0, pred[1])]
             return Literal(
                 loc,
                 sign,
@@ -473,9 +456,7 @@ class DomainPredicates:
             (head, _) = pair
             head_variables = set(map(lambda x: x.name, collect_ast(head, "Variable")))
             for conditions in domain_rules[head]:
-                head_variables -= set(
-                    map(lambda x: x.name, collect_bound_variables(conditions))
-                )
+                head_variables -= set(map(lambda x: x.name, collect_bound_variables(conditions)))
             return len(head_variables) == 0
 
         domain_rules = dict(filter(has_head_bounded, domain_rules.items()))
@@ -483,17 +464,13 @@ class DomainPredicates:
         def have_domain(lit):
             for atom in collect_ast(lit, "SymbolicAtom"):
                 if atom.symbol.ast_type == ASTType.Function:
-                    if not self.has_domain(
-                        (atom.symbol.name, len(atom.symbol.arguments))
-                    ):
+                    if not self.has_domain((atom.symbol.name, len(atom.symbol.arguments))):
                         return False
             return True
 
         def replace_domain(atom):
             assert atom.ast_type == ASTType.SymbolicAtom
-            assert (
-                atom.symbol.ast_type == ASTType.Function
-            )  # not necessary, but I still have to handle the case, TODO
+            assert atom.symbol.ast_type == ASTType.Function  # not necessary, but I still have to handle the case, TODO
             name = atom.symbol.name
             arity = len(atom.symbol.arguments)
             assert self.has_domain((name, arity))
@@ -541,21 +518,15 @@ class DomainPredicates:
                         assert elem.ast_type == ASTType.ConditionalLiteral
                         condition = elem.condition
                         if elem.literal.sign == Sign.NoSign:
-                            domain_rules[elem.literal.atom].append(
-                                list(chain(condition, body))
-                            )
+                            domain_rules[elem.literal.atom].append(list(chain(condition, body)))
                 elif head.ast_type == ASTType.HeadAggregate:
                     for elem in head.elements:
                         assert elem.condition.literal.sign == Sign.NoSign
-                        domain_rules[elem.condition.literal.atom].append(
-                            list(chain(elem.condition, body))
-                        )
+                        domain_rules[elem.condition.literal.atom].append(list(chain(elem.condition, body)))
                 elif head.ast_type == ASTType.Aggregate:
                     for elem in head.elements:
                         assert elem.literal.sign == Sign.NoSign
-                        domain_rules[elem.literal.atom].append(
-                            list(chain(elem.condition, body))
-                        )
+                        domain_rules[elem.literal.atom].append(list(chain(elem.condition, body)))
         for atom, bodies in domain_rules.items():
             pred = (atom.symbol.name, len(atom.symbol.arguments))
             if not self.is_static(pred):
