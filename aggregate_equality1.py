@@ -21,7 +21,8 @@ from utils import (
     contains_ast,
     contains_variable,
     predicates,
-    reverse_comparison,
+    rhs2lhs_comparison,
+    negate_comparison,
 )
 
 
@@ -38,7 +39,7 @@ class BoundComputer:
         if lhs.ast_type == ASTType.Variable and lhs.name == self.varname:
             self.bounds.append(Comparison(lhs, [Guard(op, rhs)]))
         elif rhs.ast_type == ASTType.Variable and rhs.name == self.varname:
-            self.bounds.append(Comparison(rhs, [Guard(reverse_comparison(op), lhs)]))
+            self.bounds.append(Comparison(rhs, [Guard(rhs2lhs_comparison(op), lhs)]))
         else:
             self.too_complicated = (
                 True
@@ -88,7 +89,7 @@ class BoundComputer:
         ):
             if sign == Sign.Negation:
                 newguard = comp.guards[0].update(
-                    comparison=reverse_comparison(comp.guards[0].comparison)
+                    comparison=negate_comparison(comp.guards[0].comparison)
                 )
                 comp = comp.update(guards=[newguard])
             self.bounds.append(comp)
@@ -99,9 +100,9 @@ class BoundComputer:
                 and guard.term.name == self.varname
             ):
                 newcomparison = (
-                    guard.comparison
+                    negate_comparison(rhs2lhs_comparison(guard.comparison))
                     if sign != Sign.NoSign
-                    else reverse_comparison(guard.comparison)
+                    else rhs2lhs_comparison(guard.comparison)
                 )
                 comp = Comparison(guard.term, [Guard(newcomparison, comp.term)])
                 self.bounds.append(comp)
@@ -180,7 +181,7 @@ class EqualVariable(Transformer):
                     if len(bcomp.bounds) >= 1:
                         agg = agg.update(
                             left_guard=bcomp.bounds[0].update(
-                                comparison=reverse_comparison(
+                                comparison=rhs2lhs_comparison(
                                     bcomp.bounds[0].comparison
                                 )
                             )

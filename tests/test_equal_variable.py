@@ -25,13 +25,13 @@ class RunBoundComputer(Transformer):
     "rule, bounds, rest",
     [
         (":- X < 2.", ["X < 2"], []),
-        (":- not X < 2.", ["X > 2"], []),
+        (":- not X < 2.", ["X >= 2"], []),
         (":- X = 2.", ["X = 2"], []),
         (":- not X = 2.", ["X != 2"], []),
         (":- X < 2, X > 4.", ["X < 2", "X > 4"], []),
         (":- 2 < X.", ["X > 2"], []),
-        (":- not 2 < X.", ["X < 2"], []),
-        (":- not 2 < X, X > 4.", ["X < 2", "X > 4"], []),
+        (":- not 2 < X.", ["X <= 2"], []),
+        (":- not 2 < X, X > 4.", ["X <= 2", "X > 4"], []),
         (":- 2 < X < 4.", ["X > 2", "X < 4"], []),
         (":- 2 < X < 4 < Y < Z + 123.", ["X > 2", "X < 4"], ["4 < Y", "Y < (Z+123)"]),
         (
@@ -78,6 +78,42 @@ def test_toocomplicated_bounds(rule):
         (
             "#false :- 1 <= #sum {1,a : a;1,b: b;1,c: c} <= 2, not X = #sum {1,e: e;1,f: f;1,g: g} 3, X>=2>1, 5>3.",
             "#false :- not 2 <= #sum { 1,e: e; 1,f: f; 1,g: g } <= 3; 1 <= #sum { 1,a: a; 1,b: b; 1,c: c } <= 2; 2 > 1; 5 > 3.",
+        ),
+        (
+            "#false :- 1 <= #sum {1,a : a;1,b: b;1,c: c} <= 2, X = #sum {1,e: e;1,f: f;1,g: g} 3, X!=2.",
+            "#false :- 2 != #sum { 1,e: e; 1,f: f; 1,g: g } <= 3; 1 <= #sum { 1,a: a; 1,b: b; 1,c: c } <= 2.",
+        ),
+        (
+            "#false :- X = #count { J: perm(J,_) }; Y = #count { J: job(J) }; X != Y.",
+            "#false :- Y != #count { J: perm(J,_) }; Y = #count { J: job(J) }.",
+        ),
+        (
+            "#false :- X = #count { J: perm(J,_) }; Y = #count { J: job(J) }; not X != Y.",
+            "#false :- Y = #count { J: perm(J,_) }; Y = #count { J: job(J) }.",
+        ),
+        (
+            "#false :- X = #count { J: perm(J,_) }; Y = #count { J: job(J) }; X < Y.",
+            "#false :- Y > #count { J: perm(J,_) }; Y = #count { J: job(J) }.",
+        ),
+        (
+           "#false :- X = #count { J: perm(J,_) }; Y = #count { J: job(J) }; not X < Y.",
+           "#false :- Y <= #count { J: perm(J,_) }; Y = #count { J: job(J) }.",
+        ),
+        (
+            "#false :- X = #count { J: perm(J,_) }; Y = #count { J: job(J) }; Y < X.",
+            "#false :- Y < #count { J: perm(J,_) }; Y = #count { J: job(J) }.",
+        ),
+        (
+            "#false :- X = #count { J: perm(J,_) }; Y = #count { J: job(J) }; Y != X.",
+            "#false :- Y != #count { J: perm(J,_) }; Y = #count { J: job(J) }.",
+        ),
+        (
+            "#false :- X = #count { J: perm(J,_) }; Y = #count { J: job(J) }; not Y != X.",
+            "#false :- Y = #count { J: perm(J,_) }; Y = #count { J: job(J) }.",
+        ),
+        (
+           "#false :- X = #count { J: perm(J,_) }; Y = #count { J: job(J) }; not Y < X.",
+           "#false :- Y >= #count { J: perm(J,_) }; Y = #count { J: job(J) }.",
         ),
     ],
 )

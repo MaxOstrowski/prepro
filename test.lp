@@ -1,1 +1,1 @@
-#false :- X = #count { J: perm(J,_) }; Y = #count { J: job(J) }; X != Y.
+#false :- X = #count { J: perm(J,_) }; Y = #count { J: job(J) }; not Y != X.
